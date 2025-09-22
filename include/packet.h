@@ -2,6 +2,7 @@
 #define PACKET_H
 
 #include<stdint.h>
+#include<time.h>
 #include "olsr.h"
 
 //Defining the packet structure
@@ -18,7 +19,7 @@ struct olsr_message {
 	uint32_t originator;
 	uint8_t ttl;
 	uint8_t hop_count;
-	uint8_t msg_seq_num;
+	uint16_t msg_seq_num;        // Fixed: was uint8_t
 	void *body;
 };
 
@@ -40,6 +41,9 @@ struct olsr_hello {
 	int neighbor_count;
 };
 
-//still more functions need to be added!
+// Function declarations for packet operations
+struct olsr_hello* generate_hello_message(void);
+void free_hello_message(struct olsr_hello* hello_msg);
+int serialize_hello_packet(struct olsr_message* msg, char* buffer, int buffer_size);
 
 #endif

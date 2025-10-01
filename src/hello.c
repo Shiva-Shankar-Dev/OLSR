@@ -1,24 +1,47 @@
+/**
+ * @file hello.c
+ * @brief HELLO message implementation for OLSR protocol
+ * @author OLSR Implementation Team
+ * @date 2025-09-23
+ * 
+ * This file implements HELLO message creation, processing, and neighbor
+ * table management functions for the OLSR protocol. It handles neighbor
+ * discovery and maintains link state information.
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
 #include <arpa/inet.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
 #include "../include/hello.h"
 #include "../include/olsr.h"
 #include "../include/packet.h"
 
-// Global variables (defined in olsr.h)
+/** @brief Global neighbor table array */
 struct neighbor_entry neighbor_table[MAX_NEIGHBORS];
+/** @brief Current number of neighbors in the table */
 int neighbor_count = 0;
+/** @brief This node's willingness to act as MPR */
 uint8_t node_willingness = WILL_DEFAULT;
+/** @brief This node's IP address */
 uint32_t node_ip = 0;
+/** @brief Global message sequence number counter */
 uint16_t message_seq_num = 0;
 
 /**
- * Generate a HELLO message containing current neighbors and willingness
+ * @brief Generate a HELLO message
+ * 
+ * Creates a new HELLO message structure containing the node's current
+ * willingness value and neighbor information. The message is used for
+ * neighbor discovery and link sensing in the OLSR protocol.
+ * 
+ * @return Pointer to newly allocated HELLO message, or NULL on failure
+ * 
+ * @note The caller is responsible for freeing the returned message
+ * @note If neighbor_count > 0, neighbor information is not included
+ *       in this simplified implementation
  */
 struct olsr_hello* generate_hello_message(void) {
     struct olsr_hello* hello_msg = malloc(sizeof(struct olsr_hello));
@@ -27,12 +50,10 @@ struct olsr_hello* generate_hello_message(void) {
         return NULL;
     }
     
-    // Set basic HELLO message fields
     hello_msg->hello_interval = HELLO_INTERVAL;
     hello_msg->willingness = node_willingness;
     hello_msg->neighbor_count = neighbor_count;
-    
-    // Allocate memory for neighbors list
+
     if (neighbor_count > 0) {
         hello_msg->neighbors = malloc(neighbor_count * sizeof(struct hello_neighbor));
         if (!hello_msg->neighbors) {
@@ -41,10 +62,9 @@ struct olsr_hello* generate_hello_message(void) {
             return NULL;
         }
         
-        // Copy neighbor information to HELLO message
         for (int i = 0; i < neighbor_count; i++) {
-            hello_msg->neighbors[i].neighbor_addr = neighbor_table[i].addr;
-            hello_msg->neighbors[i].link_code = neighbor_table[i].link_code;
+            hello_msg->neighbors[i].neighbor_addr = neighbor_table[i].neighbor_addr;
+            hello_msg->neighbors[i].link_code = neighbor_table[i].link_status;
         }
     } else {
         hello_msg->neighbors = NULL;
@@ -57,9 +77,16 @@ struct olsr_hello* generate_hello_message(void) {
 }
 
 /**
- * Send HELLO message via UDP broadcast
+ * @brief Send a HELLO message
+ * 
+ * Generates a HELLO message, wraps it in an OLSR message header,
+ * and simulates transmission. This function handles message creation,
+ * sequence number assignment, and logging.
+ * 
+ * @note In this implementation, no actual network transmission occurs.
+ *       The function demonstrates message creation and logging only.
  */
-void send_hello_message(int sockfd, struct sockaddr_in* broadcast_addr) {
+void send_hello_message(void) {
     // Generate HELLO message
     struct olsr_hello* hello_msg = generate_hello_message();
     if (!hello_msg) {
@@ -67,35 +94,27 @@ void send_hello_message(int sockfd, struct sockaddr_in* broadcast_addr) {
         return;
     }
     
-    // Create OLSR message wrapper
+    // Create OLSR message header
     struct olsr_message msg;
-    msg.msg_type = MSG_HELLO;
-    msg.vtime = 6; // Validity time (encoded)
-    msg.originator = node_ip;
-    msg.ttl = 1; // HELLO messages are only sent to 1-hop neighbors
-    msg.hop_count = 0;
-    msg.msg_seq_num = ++message_seq_num;
-    msg.body = hello_msg;
+    msg.msg_type = MSG_HELLO;      /**< Set message type to HELLO */
+    msg.vtime = 6;                 /**< Validity time (encoded) */
+    msg.originator = node_ip;      /**< Set originator to this node's IP */
+    msg.ttl = 1;                   /**< TTL = 1 for HELLO (one-hop only) */
+    msg.hop_count = 0;             /**< Initial hop count */
+    msg.msg_seq_num = ++message_seq_num; /**< Increment and assign sequence number */
+    msg.body = hello_msg;          /**< Attach HELLO message body */
     
-    // Calculate message size
+    // Calculate total message size
     msg.msg_size = sizeof(struct olsr_message) + sizeof(struct olsr_hello) + 
                    (hello_msg->neighbor_count * sizeof(struct hello_neighbor));
     
-    // Serialize and send the packet
-    char buffer[1024];
-    int packet_size = serialize_hello_packet(&msg, buffer, sizeof(buffer));
+    // Simulate sending the HELLO message (no actual network transmission)
+    printf("HELLO message sent (type=%d, size=%d bytes, seq=%d)\n", 
+           msg.msg_type, msg.msg_size, msg.msg_seq_num);
+    printf("Willingness: %d, Neighbors: %d\n", 
+           hello_msg->willingness, hello_msg->neighbor_count);
     
-    if (packet_size > 0) {
-        ssize_t sent = sendto(sockfd, buffer, packet_size, 0, 
-                             (struct sockaddr*)broadcast_addr, sizeof(*broadcast_addr));
-        if (sent < 0) {
-            perror("Error sending HELLO message");
-        } else {
-            printf("HELLO message sent (%zd bytes) to broadcast address\n", sent);
-        }
-    }
-    
-    // Cleanup
+    // Cleanup allocated memory
     if (hello_msg->neighbors) {
         free(hello_msg->neighbors);
     }
@@ -103,7 +122,16 @@ void send_hello_message(int sockfd, struct sockaddr_in* broadcast_addr) {
 }
 
 /**
- * Process received HELLO message
+ * @brief Process a received HELLO message
+ * 
+ * Processes an incoming HELLO message to update neighbor information
+ * and determine link symmetry. The function checks if this node is
+ * mentioned in the sender's neighbor list to establish bidirectional links.
+ * 
+ * @param msg Pointer to the OLSR message containing the HELLO
+ * @param sender_addr IP address of the message sender
+ * 
+ * @note This function updates the neighbor table and establishes link symmetry
  */
 void process_hello_message(struct olsr_message* msg, uint32_t sender_addr) {
     if (msg->msg_type != MSG_HELLO) {
@@ -117,10 +145,10 @@ void process_hello_message(struct olsr_message* msg, uint32_t sender_addr) {
            inet_ntoa(*(struct in_addr*)&sender_addr),
            hello_msg->willingness, hello_msg->neighbor_count);
     
-    // Update or add sender to neighbor table
+    // Update neighbor table with sender information
     update_neighbor(sender_addr, SYM_LINK, hello_msg->willingness);
     
-    // Check if we are mentioned in the sender's neighbor list
+    // Check if we are mentioned in the sender's neighbor list (bidirectional link)
     int we_are_mentioned = 0;
     for (int i = 0; i < hello_msg->neighbor_count; i++) {
         if (hello_msg->neighbors[i].neighbor_addr == node_ip) {
@@ -139,116 +167,35 @@ void process_hello_message(struct olsr_message* msg, uint32_t sender_addr) {
 }
 
 /**
- * Add a new neighbor to the neighbor table
+ * @brief Push a HELLO message to the control queue
+ * 
+ * Creates a new HELLO message and adds it to the specified control queue
+ * for later processing. This function combines message generation with
+ * queue management.
+ * 
+ * @param queue Pointer to the control queue where the message will be stored
+ * @return 0 on success, -1 on failure
+ * 
+ * @note The control queue takes ownership of the message data
  */
-int add_neighbor(uint32_t addr, uint8_t link_code, uint8_t willingness) {
-    if (neighbor_count >= MAX_NEIGHBORS) {
-        printf("Error: Neighbor table is full\n");
+int push_hello_to_queue(struct control_queue* queue) {
+    if (!queue) {
+        printf("Error: Control queue is NULL\n");
         return -1;
     }
-    
-    // Check if neighbor already exists
-    if (find_neighbor(addr) != NULL) {
-        return update_neighbor(addr, link_code, willingness);
-    }
-    
-    // Add new neighbor
-    neighbor_table[neighbor_count].addr = addr;
-    neighbor_table[neighbor_count].link_code = link_code;
-    neighbor_table[neighbor_count].willingness = willingness;
-    neighbor_table[neighbor_count].last_heard = time(NULL);
-    neighbor_table[neighbor_count].is_mpr = 0;
-    neighbor_table[neighbor_count].is_mpr_selector = 0;
-    
-    neighbor_count++;
-    
-    printf("Added neighbor %s (willingness=%d, link=%d)\n",
-           inet_ntoa(*(struct in_addr*)&addr), willingness, link_code);
-    
-    return 0;
-}
 
-/**
- * Update an existing neighbor in the neighbor table
- */
-int update_neighbor(uint32_t addr, uint8_t link_code, uint8_t willingness) {
-    struct neighbor_entry* neighbor = find_neighbor(addr);
-    
-    if (neighbor == NULL) {
-        return add_neighbor(addr, link_code, willingness);
-    }
-    
-    neighbor->link_code = link_code;
-    neighbor->willingness = willingness;
-    neighbor->last_heard = time(NULL);
-    
-    printf("Updated neighbor %s (willingness=%d, link=%d)\n",
-           inet_ntoa(*(struct in_addr*)&addr), willingness, link_code);
-    
-    return 0;
-}
-
-/**
- * Find a neighbor in the neighbor table
- */
-struct neighbor_entry* find_neighbor(uint32_t addr) {
-    for (int i = 0; i < neighbor_count; i++) {
-        if (neighbor_table[i].addr == addr) {
-            return &neighbor_table[i];
-        }
-    }
-    return NULL;
-}
-
-/**
- * Print the current neighbor table
- */
-void print_neighbor_table(void) {
-    printf("\n--- Neighbor Table ---\n");
-    printf("Count: %d\n", neighbor_count);
-    
-    for (int i = 0; i < neighbor_count; i++) {
-        printf("%d. %s - Link:%d, Will:%d, MPR:%d, Last heard: %ld\n",
-               i + 1,
-               inet_ntoa(*(struct in_addr*)&neighbor_table[i].addr),
-               neighbor_table[i].link_code,
-               neighbor_table[i].willingness,
-               neighbor_table[i].is_mpr,
-               neighbor_table[i].last_heard);
-    }
-    printf("----------------------\n\n");
-}
-
-/**
- * Serialize HELLO packet for transmission
- */
-int serialize_hello_packet(struct olsr_message* msg, char* buffer, int buffer_size) {
-    if (!msg || !buffer || buffer_size < (int)sizeof(struct olsr_message)) {
+    // Generate HELLO message
+    struct olsr_hello* hello_msg = generate_hello_message();
+    if (!hello_msg) {
+        printf("Error: Failed to generate HELLO message\n");
         return -1;
     }
+
+    // Push to control queue
+    int result = push_to_control_queue(queue, MSG_HELLO, hello_msg, sizeof(struct olsr_hello));
     
-    int offset = 0;
+    printf("HELLO message created and queued (willingness=%d, neighbors=%d)\n", 
+           hello_msg->willingness, hello_msg->neighbor_count);
     
-    // Copy message header
-    memcpy(buffer + offset, msg, sizeof(struct olsr_message));
-    offset += sizeof(struct olsr_message);
-    
-    // Copy HELLO message body
-    struct olsr_hello* hello_msg = (struct olsr_hello*)msg->body;
-    memcpy(buffer + offset, hello_msg, sizeof(struct olsr_hello));
-    offset += sizeof(struct olsr_hello);
-    
-    // Copy neighbors list
-    if (hello_msg->neighbor_count > 0 && hello_msg->neighbors) {
-        int neighbors_size = hello_msg->neighbor_count * sizeof(struct hello_neighbor);
-        if (offset + neighbors_size <= buffer_size) {
-            memcpy(buffer + offset, hello_msg->neighbors, neighbors_size);
-            offset += neighbors_size;
-        } else {
-            printf("Error: Buffer too small for neighbors list\n");
-            return -1;
-        }
-    }
-    
-    return offset;
+    return result;
 }

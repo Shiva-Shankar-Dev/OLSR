@@ -12,7 +12,12 @@
 #define OLSR_H
 
 #include<stdint.h>
-#include<netinet/in.h>
+#ifdef _WIN32
+    #include<winsock2.h>
+    #include<ws2tcpip.h>
+#else
+    #include<netinet/in.h>
+#endif
 
 /**
  * @defgroup MessageTypes OLSR Message Types

@@ -12,9 +12,14 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
-#include <unistd.h>
 #include <time.h>
-#include <arpa/inet.h>
+#ifdef _WIN32
+    #include <winsock2.h>
+    #include <ws2tcpip.h>
+#else
+    #include <unistd.h>
+    #include <arpa/inet.h>
+#endif
 #include "../include/olsr.h"
 #include "../include/packet.h"
 #include "../include/hello.h"

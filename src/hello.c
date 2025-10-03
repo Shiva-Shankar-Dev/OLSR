@@ -13,8 +13,13 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include <unistd.h>
-#include <arpa/inet.h>
+#ifdef _WIN32
+    #include <winsock2.h>
+    #include <ws2tcpip.h>
+#else
+    #include <unistd.h>
+    #include <arpa/inet.h>
+#endif
 #include "../include/hello.h"
 #include "../include/olsr.h"
 #include "../include/packet.h"
@@ -198,4 +203,192 @@ int push_hello_to_queue(struct control_queue* queue) {
            hello_msg->willingness, hello_msg->neighbor_count);
     
     return result;
+}
+
+/**
+ * @brief Update neighbor information in the neighbor table
+ * 
+ * Updates or adds a neighbor entry in the neighbor table with the
+ * provided link status and willingness information.
+ * 
+ * @param addr IP address of the neighbor
+ * @param link_code Link status code (SYM_LINK, ASYM_LINK, etc.)
+ * @param willingness Neighbor's willingness to act as MPR
+ * @return 0 on success, -1 on failure
+ */
+int update_neighbor(uint32_t addr, uint8_t link_code, uint8_t willingness) {
+    // Look for existing neighbor entry
+    for (int i = 0; i < neighbor_count; i++) {
+        if (neighbor_table[i].neighbor_addr == addr) {
+            // Update existing entry
+            neighbor_table[i].link_status = link_code;
+            neighbor_table[i].willingness = willingness;
+            neighbor_table[i].last_seen = time(NULL);
+            printf("Updated neighbor %s: link=%d, willingness=%d\n",
+                   inet_ntoa(*(struct in_addr*)&addr), link_code, willingness);
+            return 0;
+        }
+    }
+    
+    // Add new neighbor entry if space available
+    if (neighbor_count < MAX_NEIGHBORS) {
+        neighbor_table[neighbor_count].neighbor_addr = addr;
+        neighbor_table[neighbor_count].link_status = link_code;
+        neighbor_table[neighbor_count].willingness = willingness;
+        neighbor_table[neighbor_count].last_seen = time(NULL);
+        neighbor_table[neighbor_count].is_mpr = 0;
+        neighbor_table[neighbor_count].is_mpr_selector = 0;
+        neighbor_table[neighbor_count].next = NULL;
+        neighbor_count++;
+        printf("Added new neighbor %s: link=%d, willingness=%d\n",
+               inet_ntoa(*(struct in_addr*)&addr), link_code, willingness);
+        return 0;
+    }
+    
+    printf("Error: Neighbor table is full, cannot add %s\n",
+           inet_ntoa(*(struct in_addr*)&addr));
+    return -1;
+}
+
+/**
+ * @brief Initialize the control queue
+ * 
+ * Initializes a control queue structure by setting all counters to zero.
+ * 
+ * @param queue Pointer to the control queue to initialize
+ */
+void init_control_queue(struct control_queue* queue) {
+    if (!queue) {
+        printf("Error: Cannot initialize NULL control queue\n");
+        return;
+    }
+    
+    queue->front = 0;
+    queue->rear = -1;
+    queue->count = 0;
+    
+    printf("Control queue initialized\n");
+}
+
+/**
+ * @brief Push a message to the control queue
+ * 
+ * Adds a new message to the rear of the control queue using circular
+ * buffer implementation.
+ * 
+ * @param queue Pointer to the control queue
+ * @param msg_type Type of the message (MSG_HELLO, MSG_TC, etc.)
+ * @param msg_data Pointer to message data
+ * @param data_size Size of the message data in bytes
+ * @return 0 on success, -1 on failure
+ */
+int push_to_control_queue(struct control_queue* queue, uint8_t msg_type, void* msg_data, int data_size) {
+    if (!queue) {
+        printf("Error: Control queue is NULL\n");
+        return -1;
+    }
+    
+    if (queue->count >= MAX_QUEUE_SIZE) {
+        printf("Error: Control queue is full\n");
+        return -1;
+    }
+    
+    // Calculate next rear position (circular buffer)
+    queue->rear = (queue->rear + 1) % MAX_QUEUE_SIZE;
+    
+    // Add message to queue
+    queue->messages[queue->rear].msg_type = msg_type;
+    queue->messages[queue->rear].timestamp = (uint32_t)time(NULL);
+    queue->messages[queue->rear].msg_data = msg_data;
+    queue->messages[queue->rear].data_size = data_size;
+    
+    queue->count++;
+    
+    printf("Message queued: type=%d, size=%d bytes, queue_count=%d\n", 
+           msg_type, data_size, queue->count);
+    
+    return 0;
+}
+
+/**
+ * @brief Pop a message from the control queue
+ * 
+ * Removes and returns the message at the front of the control queue.
+ * 
+ * @param queue Pointer to the control queue
+ * @return Pointer to control message, or NULL if queue is empty
+ */
+struct control_message* pop_from_control_queue(struct control_queue* queue) {
+    if (!queue || queue->count == 0) {
+        return NULL;
+    }
+    
+    struct control_message* msg = &queue->messages[queue->front];
+    
+    // Move front pointer (circular buffer)
+    queue->front = (queue->front + 1) % MAX_QUEUE_SIZE;
+    queue->count--;
+    
+    printf("Message dequeued: type=%d, remaining_count=%d\n", 
+           msg->msg_type, queue->count);
+    
+    return msg;
+}
+
+/**
+ * @brief Find a neighbor in the neighbor table
+ * 
+ * Searches the neighbor table for a specific neighbor by IP address.
+ * 
+ * @param addr IP address of the neighbor to find
+ * @return Pointer to neighbor entry if found, NULL otherwise
+ */
+struct neighbor_entry* find_neighbor(uint32_t addr) {
+    for (int i = 0; i < neighbor_count; i++) {
+        if (neighbor_table[i].neighbor_addr == addr) {
+            return &neighbor_table[i];
+        }
+    }
+    return NULL;
+}
+
+/**
+ * @brief Print the current neighbor table
+ * 
+ * Displays the contents of the neighbor table in a human-readable format,
+ * showing neighbor addresses, willingness values, and link status.
+ */
+void print_neighbor_table(void) {
+    printf("\n=== NEIGHBOR TABLE ===\n");
+    printf("Count: %d/%d\n", neighbor_count, MAX_NEIGHBORS);
+    
+    if (neighbor_count == 0) {
+        printf("No neighbors found.\n");
+        return;
+    }
+    
+    printf("%-15s %-10s %-10s %-8s %-8s\n", 
+           "IP Address", "Link", "Will", "MPR", "MPR_Sel");
+    printf("----------------------------------------------------------\n");
+    
+    for (int i = 0; i < neighbor_count; i++) {
+        char ip_str[16];
+        strcpy(ip_str, inet_ntoa(*(struct in_addr*)&neighbor_table[i].neighbor_addr));
+        
+        const char* link_status;
+        switch (neighbor_table[i].link_status) {
+            case SYM_LINK: link_status = "SYM"; break;
+            case ASYM_LINK: link_status = "ASYM"; break;
+            case LOST_LINK: link_status = "LOST"; break;
+            default: link_status = "UNSPEC"; break;
+        }
+        
+        printf("%-15s %-10s %-10d %-8s %-8s\n",
+               ip_str,
+               link_status,
+               neighbor_table[i].willingness,
+               neighbor_table[i].is_mpr ? "YES" : "NO",
+               neighbor_table[i].is_mpr_selector ? "YES" : "NO");
+    }
+    printf("======================\n\n");
 }

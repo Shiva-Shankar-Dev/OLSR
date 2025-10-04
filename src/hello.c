@@ -87,7 +87,7 @@ struct olsr_hello* generate_hello_message(void) {
  *       The function demonstrates message creation and logging only.
  */
 void send_hello_message(void) {
-    // Generate HELLO message
+
     struct olsr_hello* hello_msg = generate_hello_message();
     if (!hello_msg) {
         printf("Error: Failed to generate HELLO message\n");
@@ -107,8 +107,8 @@ void send_hello_message(void) {
     // Calculate total message size
     msg.msg_size = sizeof(struct olsr_message) + sizeof(struct olsr_hello) + 
                    (hello_msg->neighbor_count * sizeof(struct hello_neighbor));
-    
-    // Simulate sending the HELLO message (no actual network transmission)
+
+    // Debugging output
     printf("HELLO message sent (type=%d, size=%d bytes, seq=%d)\n", 
            msg.msg_type, msg.msg_size, msg.msg_seq_num);
     printf("Willingness: %d, Neighbors: %d\n", 
@@ -144,9 +144,6 @@ void process_hello_message(struct olsr_message* msg, uint32_t sender_addr) {
     printf("Received HELLO from %s: willingness=%d, neighbors=%d\n",
            inet_ntoa(*(struct in_addr*)&sender_addr),
            hello_msg->willingness, hello_msg->neighbor_count);
-    
-    // Update neighbor table with sender information
-    update_neighbor(sender_addr, SYM_LINK, hello_msg->willingness);
     
     // Check if we are mentioned in the sender's neighbor list (bidirectional link)
     int we_are_mentioned = 0;

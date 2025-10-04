@@ -12,9 +12,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
-#include <unistd.h>
 #include <time.h>
-#include <arpa/inet.h>
 #include "../include/olsr.h"
 #include "../include/packet.h"
 #include "../include/hello.h"
@@ -25,11 +23,78 @@ static struct routing_table_entry routing_table[MAX_ROUTING_ENTRIES];
 /** @brief Current number of routing entries */
 static int routing_table_size = 0;
 
+/** @brief Topology information from TC messages */
+static struct topology_link tc_topology[MAX_NODES * MAX_NODES];
+/** @brief Number of links in TC topology */
+static int tc_topology_size = 0;
+
+/**
+ * @brief Add or update a topology link from TC message
+ * @param from_addr Source node address
+ * @param to_addr Destination node address
+ * @param validity Validity time
+ * @return 0 on success, -1 if topology table is full
+ */
+int update_tc_topology(uint32_t from_addr, uint32_t to_addr, time_t validity) {
+    // Check if link already exists
+    for (int i = 0; i < tc_topology_size; i++) {
+        if (tc_topology[i].from_addr == from_addr && 
+            tc_topology[i].to_addr == to_addr) {
+            // Update existing link
+            tc_topology[i].validity = validity;
+            return 0;
+        }
+    }
+    
+    // Add new link if space available
+    if (tc_topology_size >= MAX_NODES * MAX_NODES) {
+        printf("Error: TC topology table full\n");
+        return -1;
+    }
+    
+    tc_topology[tc_topology_size].from_addr = from_addr;
+    tc_topology[tc_topology_size].to_addr = to_addr;
+    tc_topology[tc_topology_size].cost = 1;  // Standard OLSR cost
+    tc_topology[tc_topology_size].validity = validity;
+    tc_topology_size++;
+    
+    printf("Added TC topology link: %s -> %s (validity=%lds)\n",
+           inet_ntoa(*(struct in_addr*)&from_addr),
+           inet_ntoa(*(struct in_addr*)&to_addr),
+           (long)(validity - time(NULL)));
+    
+    return 0;
+}
+
+/**
+ * @brief Remove expired TC topology links
+ */
+void cleanup_tc_topology(void) {
+    time_t now = time(NULL);
+    int i = 0;
+    
+    while (i < tc_topology_size) {
+        if (tc_topology[i].validity <= now) {
+            // Remove expired link by shifting remaining entries
+            printf("Removing expired TC link: %s -> %s\n",
+                   inet_ntoa(*(struct in_addr*)&tc_topology[i].from_addr),
+                   inet_ntoa(*(struct in_addr*)&tc_topology[i].to_addr));
+            
+            for (int j = i; j < tc_topology_size - 1; j++) {
+                tc_topology[j] = tc_topology[j + 1];
+            }
+            tc_topology_size--;
+        } else {
+            i++;
+        }
+    }
+}
+
 /**
  * @brief Find minimum distance vertex not yet processed
  */
 
-static int find_min_distance(int* dist, int* sptSet, uint32_t* nodes, int node_count) {
+static int find_min_distance(int* dist, int* sptSet, int node_count) {
     int min = INFINITE_COST;
     int min_index = -1;
     
@@ -55,12 +120,13 @@ static int find_node_index(uint32_t* nodes, int node_count, uint32_t target_ip) 
 }
 
 /**
- * @brief Build topology graph from neighbor table
+ * @brief Build topology graph from neighbor table and TC messages
  */
 int build_topology_graph(struct topology_link* topology, int max_links) {
     int link_count = 0;
+    time_t now = time(NULL);
     
-    // Add direct neighbor links from neighbor table
+    // First add direct neighbor links from neighbor table
     for (int i = 0; i < neighbor_count && link_count < max_links; i++) {
         if (neighbor_table[i].link_status == SYM_LINK) {
             topology[link_count].from_addr = node_ip;
@@ -69,11 +135,32 @@ int build_topology_graph(struct topology_link* topology, int max_links) {
             topology[link_count].validity = neighbor_table[i].last_seen + 10;
             link_count++;
             
-            printf("Added topology link: %s -> %s (cost=1)\n",
+            printf("Added direct link: %s -> %s (cost=1)\n",
                    inet_ntoa(*(struct in_addr*)&node_ip),
                    inet_ntoa(*(struct in_addr*)&neighbor_table[i].neighbor_addr));
         }
     }
+    
+    // Remove expired TC topology entries
+    cleanup_tc_topology();
+    
+    // Then add topology information from TC messages
+    for (int i = 0; i < tc_topology_size && link_count < max_links; i++) {
+        if (tc_topology[i].validity > now) {  // Only add valid links
+            topology[link_count] = tc_topology[i];
+            link_count++;
+            
+            printf("Added TC link: %s -> %s (cost=%d)\n",
+                   inet_ntoa(*(struct in_addr*)&tc_topology[i].from_addr),
+                   inet_ntoa(*(struct in_addr*)&tc_topology[i].to_addr),
+                   tc_topology[i].cost);
+        }
+    }
+    
+    printf("Built complete topology with %d links (%d direct, %d from TC)\n",
+           link_count, 
+           (link_count > tc_topology_size) ? link_count - tc_topology_size : 0,
+           (tc_topology_size < link_count) ? tc_topology_size : link_count - (link_count - tc_topology_size));
     
     return link_count;
 }
@@ -123,7 +210,7 @@ void dijkstra_shortest_path(uint32_t source, struct topology_link* topology, int
     
     // Main Dijkstra loop
     for (int count = 0; count < node_count - 1; count++) {
-        int u = find_min_distance(dist, sptSet, nodes, node_count);
+    int u = find_min_distance(dist, sptSet, node_count);
         if (u == -1) break;
         
         sptSet[u] = 1;

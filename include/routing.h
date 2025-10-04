@@ -92,4 +92,18 @@ void clear_routing_table(void);
  */
 void update_routing_table(void);
 
+/**
+ * @brief Add or update a topology link from TC message
+ * @param from_addr Source node address
+ * @param to_addr Destination node address
+ * @param validity Validity time
+ * @return 0 on success, -1 if topology table is full
+ */
+int update_tc_topology(uint32_t from_addr, uint32_t to_addr, time_t validity);
+
+/**
+ * @brief Remove expired TC topology links
+ */
+void cleanup_tc_topology(void);
+
 #endif // ROUTING_H

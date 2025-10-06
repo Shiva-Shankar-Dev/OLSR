@@ -44,7 +44,9 @@ uint16_t message_seq_num = 0;
  *       in this simplified implementation
  */
 struct olsr_hello* generate_hello_message(void) {
-    struct olsr_hello* hello_msg = malloc(sizeof(struct olsr_hello));
+    static struct olsr_hello hello_msg_static;
+    struct olsr_hello* hello_msg = &hello_msg_static;
+    memset(hello_msg, 0, sizeof(struct olsr_hello));
     if (!hello_msg) {
         printf("Error: Failed to allocate memory for HELLO message\n");
         return NULL;
@@ -55,7 +57,11 @@ struct olsr_hello* generate_hello_message(void) {
     hello_msg->neighbor_count = neighbor_count;
 
     if (neighbor_count > 0) {
-        hello_msg->neighbors = malloc(neighbor_count * sizeof(struct hello_neighbor));
+        static struct hello_neighbor neighbors_static[MAX_NEIGHBORS];
+        hello_msg->neighbors = &neighbors_static;
+        memset(hello_msg->neighbors, 0, neighbor_count * sizeof(struct hello_neighbor));
+        
+        // Allocate and fill neighbor information
         if (!hello_msg->neighbors) {
             printf("Error: Failed to allocate memory for neighbors list\n");
             free(hello_msg);

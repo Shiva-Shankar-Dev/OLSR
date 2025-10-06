@@ -114,7 +114,9 @@ int remove_mpr_selector(uint32_t selector_addr) {
  * @return Newly allocated TC message, NULL on failure
  */
 struct olsr_tc* generate_tc_message(void) {
-    struct olsr_tc* tc = malloc(sizeof(struct olsr_tc));
+    static struct olsr_tc tc_static;
+    struct olsr_tc* tc = &tc_static;
+    memset(&tc_static, 0, sizeof(struct olsr_tc));
     if (!tc) {
         printf("Error: Failed to allocate TC message\n");
         return NULL;
@@ -124,13 +126,8 @@ struct olsr_tc* generate_tc_message(void) {
     tc->selector_count = mpr_selector_count;
     
     if (mpr_selector_count > 0) {
-        tc->mpr_selectors = malloc(mpr_selector_count * sizeof(struct tc_neighbor));
-        if (!tc->mpr_selectors) {
-            printf("Error: Failed to allocate MPR selector array\n");
-            free(tc);
-            return NULL;
-        }
-        
+        static struct tc_neighbor mpr_selectors_static[MAX_NEIGHBORS];
+        tc->mpr_selectors = mpr_selectors_static;
         // Copy MPR selectors
         for (int i = 0; i < mpr_selector_count; i++) {
             tc->mpr_selectors[i].neighbor_addr = mpr_selectors[i];

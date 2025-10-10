@@ -10,13 +10,14 @@
 void init_olsr(void){
     // Initialization code for OLSR daemon
     // Set up sockets, timers, data structures, etc.
-    printf("OLSR Daemon Initialized\n");
-    generate_hello_message();
-    send_hello_message(NULL);
+    struct control_queue ctrl_queue;
+    init_control_queue(&ctrl_queue);
+    printf("OLSR Initialized\n");
+    send_hello_message(&ctrl_queue);
     // Further initialization as needed
 }
 int main() {
-    printf("OLSR Daemon Starting...\n");
+    printf("OLSR Starting...\n");
     // Initialization code here
     init_olsr();
     return 0;

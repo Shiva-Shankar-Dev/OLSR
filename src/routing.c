@@ -194,10 +194,10 @@ void dijkstra_shortest_path(uint32_t source, struct topology_link* topology, int
     
     // Add all nodes from topology links
     for (int i = 0; i < link_count && node_count < MAX_NODES; i++) {
-        if (find_node_index(nodes, node_count, topology[i].from_addr) == -1) {
+        if ( -1==find_node_index(nodes, node_count, topology[i].from_addr) ) {
             nodes[node_count++] = topology[i].from_addr;
         }
-        if (find_node_index(nodes, node_count, topology[i].to_addr) == -1) {
+        if ( -1==find_node_index(nodes, node_count, topology[i].to_addr) ) {
             nodes[node_count++] = topology[i].to_addr;
         }
     }
@@ -214,10 +214,9 @@ void dijkstra_shortest_path(uint32_t source, struct topology_link* topology, int
         sptSet[i] = 0;
         parent[i] = 0;
     }
-    
     // Find source index
     int src_index = find_node_index(nodes, node_count, source);
-    if (src_index == -1) {
+    if (-1==src_index) {
         printf("Error: Source node not found in topology\n");
         return;
     }
@@ -227,7 +226,7 @@ void dijkstra_shortest_path(uint32_t source, struct topology_link* topology, int
     // Main Dijkstra loop
     for (int count = 0; count < node_count - 1; count++) {
     int u = find_min_distance(dist, sptSet, node_count);
-        if (u == -1) break;
+        if (-1==u) break;
         
         sptSet[u] = 1;
         
@@ -276,7 +275,7 @@ void dijkstra_shortest_path(uint32_t source, struct topology_link* topology, int
 void calculate_routing_table(void) {
     printf("=== Calculating OLSR Routing Table ===\n");
     
-    if (node_ip == 0) {
+    if (0==node_ip) {
         printf("Error: Node IP not set\n");
         return;
     }

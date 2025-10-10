@@ -8,10 +8,7 @@ void init_control_queue(struct control_queue* queue) {
     queue->count = 0;
 }
 
-int push_to_control_queue(struct control_queue* queue,
-                          uint8_t msg_type,
-                          const uint8_t* msg_data,
-                          size_t data_size) {
+int push_to_control_queue(struct control_queue* queue,uint8_t msg_type,const uint8_t* msg_data,size_t data_size) {
     // Check if queue is full
     if (queue->count >= MAX_QUEUE_SIZE) {
         return -1;  // Error: queue full

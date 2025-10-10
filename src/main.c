@@ -12,8 +12,7 @@ void init_olsr(void){
     // Set up sockets, timers, data structures, etc.
     printf("OLSR Daemon Initialized\n");
     generate_hello_message();
-    send_hello_message();
-    send_tc_message();
+    send_hello_message(NULL);
     // Further initialization as needed
 }
 int main() {

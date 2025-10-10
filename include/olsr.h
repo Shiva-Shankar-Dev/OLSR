@@ -12,7 +12,8 @@
 #define OLSR_H
 
 #include<stdint.h>
-#include<netinet/in.h>
+#include<stddef.h>
+#include<time.h>
 
 /**
  * @defgroup MessageTypes OLSR Message Types

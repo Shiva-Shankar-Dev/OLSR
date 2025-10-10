@@ -2,8 +2,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
-#include <arpa/inet.h>
-#include <unistd.h>
 #include <time.h>
 #include "../include/olsr.h"
 #include "../include/routing.h"
@@ -11,14 +9,27 @@
 #include "../include/hello.h"
 #include "../include/packet.h"
 
+/**
+ * @brief Convert a node ID to a string representation
+ * @param id The node ID to convert
+ * @param buffer Buffer to store the string representation (must be at least 16 bytes)
+ * @return Pointer to the buffer
+ */
+static char* id_to_string(uint32_t id, char* buffer) {
+    unsigned char* bytes = (unsigned char*)&id;
+    snprintf(buffer, 16, "%d.%d.%d.%d", bytes[0], bytes[1], bytes[2], bytes[3]);
+    return buffer;
+}
+
 void update_neighbor(uint32_t neighbor_addr, int link_type, uint8_t willingness){
     for (int i = 0; i < neighbor_count; i++) {
         if (neighbor_table[i].neighbor_addr == neighbor_addr) {
             neighbor_table[i].link_status = link_type;
             neighbor_table[i].willingness = willingness;
             neighbor_table[i].last_seen = time(NULL);
+            char addr_str[16];
             printf("Updated neighbor: %s (link_type=%d, willingness=%d)\n",
-                   inet_ntoa(*(struct in_addr*)&neighbor_addr),
+                   id_to_string(neighbor_addr, addr_str),
                    link_type, willingness);
             return;
         }
@@ -41,7 +52,8 @@ void add_neigbhor(uint32_t neighbor_addr, int link_type, uint8_t willingness){
     
     neighbor_count++;
     
+    char addr_str[16];
     printf("Added new neighbor: %s (link_type=%d, willingness=%d)\n",
-           inet_ntoa(*(struct in_addr*)&neighbor_addr),
+           id_to_string(neighbor_addr, addr_str),
            link_type, willingness);
 }

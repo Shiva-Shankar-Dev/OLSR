@@ -31,7 +31,7 @@ struct olsr_hello* generate_hello_message(void);
  * Generates and simulates sending a HELLO message. In this implementation,
  * it performs message creation and logging without actual network transmission.
  */
-void send_hello_message(void);
+void send_hello_message(struct control_queue* queue);
 
 /**
  * @brief Process a received HELLO message
@@ -79,7 +79,7 @@ int add_neighbor(uint32_t addr, uint8_t link_code, uint8_t willingness);
  * @param willingness New willingness value
  * @return 0 on success, -1 if neighbor not found
  */
-int update_neighbor(uint32_t addr, uint8_t link_code, uint8_t willingness);
+void update_neighbor(uint32_t neighbor_addr, int link_type, uint8_t willingness);
 
 /**
  * @brief Find a neighbor in the neighbor table

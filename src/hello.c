@@ -13,11 +13,21 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include <unistd.h>
-#include <arpa/inet.h>
 #include "../include/hello.h"
 #include "../include/olsr.h"
 #include "../include/packet.h"
+
+/**
+ * @brief Convert a node ID to a string representation
+ * @param id The node ID to convert
+ * @param buffer Buffer to store the string representation (must be at least 16 bytes)
+ * @return Pointer to the buffer
+ */
+static char* id_to_string(uint32_t id, char* buffer) {
+    unsigned char* bytes = (unsigned char*)&id;
+    snprintf(buffer, 16, "%d.%d.%d.%d", bytes[0], bytes[1], bytes[2], bytes[3]);
+    return buffer;
+}
 
 /** @brief Global neighbor table array */
 struct neighbor_entry neighbor_table[MAX_NEIGHBORS];
@@ -58,13 +68,12 @@ struct olsr_hello* generate_hello_message(void) {
 
     if (neighbor_count > 0) {
         static struct hello_neighbor neighbors_static[MAX_NEIGHBORS];
-        hello_msg->neighbors = &neighbors_static;
+        hello_msg->neighbors = neighbors_static;
         memset(hello_msg->neighbors, 0, neighbor_count * sizeof(struct hello_neighbor));
         
         // Allocate and fill neighbor information
         if (!hello_msg->neighbors) {
             printf("Error: Failed to allocate memory for neighbors list\n");
-            free(hello_msg);
             return NULL;
         }
         
@@ -152,9 +161,9 @@ void process_hello_message(struct olsr_message* msg, uint32_t sender_addr) {
     
     struct olsr_hello* hello_msg = (struct olsr_hello*)msg->body;
     
+    char sender_str[16];
     printf("Received HELLO from %s: willingness=%d, neighbors=%d\n",
-           inet_ntoa(*(struct in_addr*)&sender_addr),
-           hello_msg->willingness, hello_msg->neighbor_count);
+           id_to_string(sender_addr, sender_str), hello_msg->willingness, hello_msg->neighbor_count);
     
     // Check if we are mentioned in the sender's neighbor list (bidirectional link)
     int we_are_mentioned = 0;
@@ -200,7 +209,7 @@ int push_hello_to_queue(struct control_queue* queue) {
     }
 
     // Push to control queue
-    int result = push_to_control_queue(queue, MSG_HELLO, hello_msg, sizeof(struct olsr_hello));
+    int result = push_to_control_queue(queue, MSG_HELLO, (const uint8_t*)hello_msg, sizeof(struct olsr_hello));
     
     printf("HELLO message created and queued (willingness=%d, neighbors=%d)\n", 
            hello_msg->willingness, hello_msg->neighbor_count);

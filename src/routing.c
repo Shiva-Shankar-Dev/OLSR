@@ -72,8 +72,8 @@ int update_tc_topology(uint32_t from_addr, uint32_t to_addr, time_t validity) {
     
     char from_str[16], to_str[16];
     printf("Added TC topology link: %s -> %s (validity=%lds)\n",
-           ip_to_string(from_addr, from_str),
-           ip_to_string(to_addr, to_str),
+           id_to_string(from_addr, from_str),
+           id_to_string(to_addr, to_str),
            (long)(validity - time(NULL)));
     
     return 0;
@@ -91,8 +91,8 @@ void cleanup_tc_topology(void) {
             // Remove expired link by shifting remaining entries
             char from_str[16], to_str[16];
             printf("Removing expired TC link: %s -> %s\n",
-                   ip_to_string(tc_topology[i].from_addr, from_str),
-                   ip_to_string(tc_topology[i].to_addr, to_str));
+                   id_to_string(tc_topology[i].from_addr, from_str),
+                   id_to_string(tc_topology[i].to_addr, to_str));
             
             for (int j = i; j < tc_topology_size - 1; j++) {
                 tc_topology[j] = tc_topology[j + 1];
@@ -151,8 +151,8 @@ int build_topology_graph(struct topology_link* topology, int max_links) {
             
             char node_str[16], neighbor_str[16];
             printf("Added direct link: %s -> %s (cost=1)\n",
-                   ip_to_string(node_ip, node_str),
-                   ip_to_string(neighbor_table[i].neighbor_addr, neighbor_str));
+                   id_to_string(node_ip, node_str),
+                   id_to_string(neighbor_table[i].neighbor_addr, neighbor_str));
         }
     }
     
@@ -167,8 +167,8 @@ int build_topology_graph(struct topology_link* topology, int max_links) {
             
             char from_str[16], to_str[16];
             printf("Added TC link: %s -> %s (cost=%d)\n",
-                   ip_to_string(tc_topology[i].from_addr, from_str),
-                   ip_to_string(tc_topology[i].to_addr, to_str),
+                   id_to_string(tc_topology[i].from_addr, from_str),
+                   id_to_string(tc_topology[i].to_addr, to_str),
                    tc_topology[i].cost);
         }
     }
@@ -315,8 +315,8 @@ int add_routing_entry(uint32_t dest_ip, uint32_t next_hop, uint32_t metric, int 
             routing_table[i].timestamp = time(NULL);
             char dest_str[16], hop_str[16];
             printf("Updated routing entry: %s via %s (cost=%d, hops=%d)\n",
-                   ip_to_string(dest_ip, dest_str),
-                   ip_to_string(next_hop, hop_str),
+                   id_to_string(dest_ip, dest_str),
+                   id_to_string(next_hop, hop_str),
                    metric, hops);
             return 0;
         }
@@ -332,8 +332,8 @@ int add_routing_entry(uint32_t dest_ip, uint32_t next_hop, uint32_t metric, int 
     
     char dest_str[16], hop_str[16];
     printf("Added routing entry: %s via %s (cost=%d, hops=%d)\n",
-           ip_to_string(dest_ip, dest_str),
-           ip_to_string(next_hop, hop_str),
+           id_to_string(dest_ip, dest_str),
+           id_to_string(next_hop, hop_str),
            metric, hops);
     
     return 0;
@@ -357,8 +357,8 @@ void print_routing_table(void) {
         int age = (int)(now - routing_table[i].timestamp);
         char dest_str[16], hop_str[16];
         printf("%-15s  %-15s  %4d  %4d  %3ds\n",
-               ip_to_string(routing_table[i].dest_ip, dest_str),
-               ip_to_string(routing_table[i].next_hop, hop_str),
+               id_to_string(routing_table[i].dest_ip, dest_str),
+               id_to_string(routing_table[i].next_hop, hop_str),
                routing_table[i].metric,
                routing_table[i].hops,
                age);

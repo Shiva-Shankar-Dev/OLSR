@@ -2,14 +2,24 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
-#include <arpa/inet.h>
-#include <unistd.h>
 #include <time.h>
 #include "../include/olsr.h"
 #include "../include/packet.h"
 #include "../include/hello.h"
 #include "../include/routing.h"
 #include "../include/tc.h"
+
+/**
+ * @brief Convert a node ID to a string representation
+ * @param id The node ID to convert
+ * @param buffer Buffer to store the string representation (must be at least 16 bytes)
+ * @return Pointer to the buffer
+ */
+static char* id_to_string(uint32_t id, char* buffer) {
+    unsigned char* bytes = (unsigned char*)&id;
+    snprintf(buffer, 16, "%d.%d.%d.%d", bytes[0], bytes[1], bytes[2], bytes[3]);
+    return buffer;
+}
 
 /** @brief Global ANSN (Advertised Neighbor Sequence Number) counter */
 static uint16_t ansn_counter = 0;
@@ -29,6 +39,7 @@ static int mpr_selector_count = 0;
  * @param sender_addr IP address of message sender
  */
 void process_tc_message(struct olsr_message* msg, uint32_t sender_addr) {
+    (void)sender_addr; // Suppress unused parameter warning
     if (!msg || msg->msg_type != MSG_TC) {
         printf("Error: Invalid TC message\n");
         return;
@@ -40,8 +51,9 @@ void process_tc_message(struct olsr_message* msg, uint32_t sender_addr) {
         return;
     }
     
+    char orig_str[16];
     printf("Processing TC from %s: ANSN=%d, selectors=%d\n",
-           inet_ntoa(*(struct in_addr*)&msg->originator),
+           id_to_string(msg->originator, orig_str),
            tc->ansn, tc->selector_count);
     
     // Compute validity time (now + vtime)
@@ -54,9 +66,10 @@ void process_tc_message(struct olsr_message* msg, uint32_t sender_addr) {
         // Add topology link: originator -> selector
         update_tc_topology(msg->originator, selector, validity);
         
+        char orig_str2[16], sel_str[16];
         printf("  Topology: %s -> %s (valid for %ds)\n",
-               inet_ntoa(*(struct in_addr*)&msg->originator),
-               inet_ntoa(*(struct in_addr*)&selector),
+               id_to_string(msg->originator, orig_str2),
+               id_to_string(selector, sel_str),
                msg->vtime);
     }
     
@@ -83,8 +96,9 @@ int add_mpr_selector(uint32_t selector_addr) {
     }
     
     mpr_selectors[mpr_selector_count++] = selector_addr;
+    char addr_str[16];
     printf("Added MPR selector: %s\n",
-           inet_ntoa(*(struct in_addr*)&selector_addr));
+           id_to_string(selector_addr, addr_str));
     return 0;
 }
 
@@ -101,8 +115,9 @@ int remove_mpr_selector(uint32_t selector_addr) {
                 mpr_selectors[j] = mpr_selectors[j + 1];
             }
             mpr_selector_count--;
+            char addr_str[16];
             printf("Removed MPR selector: %s\n",
-                   inet_ntoa(*(struct in_addr*)&selector_addr));
+                   id_to_string(selector_addr, addr_str));
             return 0;
         }
     }

@@ -66,9 +66,10 @@ struct olsr_tc{
  */
 struct olsr_hello {
 	uint16_t hello_interval; /**< Interval between HELLO messages in seconds */
-	uint8_t willingness;     /**< Node's willingness to act as MPR (0-7) */
+	uint8_t willingness;      /**< Node's willingness to act as MPR (0-7) */
+	uint8_t reserved;        /**< Slot number reserved -1 for not reserved, slot numbers for reserved */
 	struct hello_neighbor {
-		uint32_t neighbor_addr; /**< IP address of discovered neighbor */
+		uint32_t neighbor_addr; /**< Node ID of discovered neighbor */
 		uint8_t link_code;      /**< Link type and neighbor type code */
 	} *neighbors;            /**< Array of neighbor information */
 	int neighbor_count;      /**< Number of neighbors in the array */

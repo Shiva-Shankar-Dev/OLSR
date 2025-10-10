@@ -2,7 +2,8 @@
     "files.associations": {
         "olsr.h": "c",
         "string.h": "c",
-        "packet.h": "c"
+        "packet.h": "c",
+        "system_error": "c"
     },
     "C_Cpp.errorSquiggles": "enabled"
 }

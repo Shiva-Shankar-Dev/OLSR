@@ -65,6 +65,7 @@ struct olsr_hello* generate_hello_message(void) {
     hello_msg->hello_interval = HELLO_INTERVAL;
     hello_msg->willingness = node_willingness;
     hello_msg->neighbor_count = neighbor_count;
+    hello_msg->reserved = -1; // Reserved field set to -1
 
     if (neighbor_count > 0) {
         static struct hello_neighbor neighbors_static[MAX_NEIGHBORS];
@@ -210,9 +211,11 @@ int push_hello_to_queue(struct control_queue* queue) {
 
     // Push to control queue
     int result = push_to_control_queue(queue, MSG_HELLO, (const uint8_t*)hello_msg, sizeof(struct olsr_hello));
-    
-    printf("HELLO message created and queued (willingness=%d, neighbors=%d)\n", 
+    if(-1==hello_msg->reserved)
+        printf("HELLO message created and queued (willingness=%d, neighbors=%d)\n", 
            hello_msg->willingness, hello_msg->neighbor_count);
-    
+    else
+        printf("HELLO message created and queued (willingness=%d, slot reserved=%d, neighbors=%d)\n",
+           hello_msg->willingness, hello_msg->reserved, hello_msg->neighbor_count);
     return result;
 }

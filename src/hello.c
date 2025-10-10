@@ -92,7 +92,7 @@ struct olsr_hello* generate_hello_message(void) {
  * @note In this implementation, no actual network transmission occurs.
  *       The function demonstrates message creation and logging only.
  */
-void send_hello_message(void) {
+void send_hello_message(struct control_queue* queue) {
 
     struct olsr_hello* hello_msg = generate_hello_message();
     if (!hello_msg) {
@@ -119,12 +119,17 @@ void send_hello_message(void) {
            msg.msg_type, msg.msg_size, msg.msg_seq_num);
     printf("Willingness: %d, Neighbors: %d\n", 
            hello_msg->willingness, hello_msg->neighbor_count);
-    
-    // Cleanup allocated memory
-    if (hello_msg->neighbors) {
-        free(hello_msg->neighbors);
+
+    if(!queue){
+      printf("Error: Control queue is NULL\n");
+      return;
     }
-    free(hello_msg);
+    if(push_hello_to_queue(queue)==0){
+      printf("HELLO Message successfully queued for MAC Layer\n");
+    }
+    else{
+      printf("ERROR: Failed to queue HELLO Message\n");
+    }
 }
 
 /**

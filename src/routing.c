@@ -18,6 +18,18 @@
 #include "../include/hello.h"
 #include "../include/routing.h"
 
+/**
+ * @brief Convert node ID to string (kernel-independent)
+ * @param id Node unique ID
+ * @param buffer Buffer to store the string (must be at least 16 bytes)
+ * @return Pointer to the buffer
+ */
+static char* id_to_string(uint32_t id, char* buffer) {
+    unsigned char* bytes = (unsigned char*)&id;
+    snprintf(buffer, 16, "%d.%d.%d.%d", bytes[0], bytes[1], bytes[2], bytes[3]);
+    return buffer;
+}
+
 /** @brief Global routing table */
 static struct routing_table_entry routing_table[MAX_ROUTING_ENTRIES];
 /** @brief Current number of routing entries */
@@ -58,9 +70,10 @@ int update_tc_topology(uint32_t from_addr, uint32_t to_addr, time_t validity) {
     tc_topology[tc_topology_size].validity = validity;
     tc_topology_size++;
     
+    char from_str[16], to_str[16];
     printf("Added TC topology link: %s -> %s (validity=%lds)\n",
-           inet_ntoa(*(struct in_addr*)&from_addr),
-           inet_ntoa(*(struct in_addr*)&to_addr),
+           ip_to_string(from_addr, from_str),
+           ip_to_string(to_addr, to_str),
            (long)(validity - time(NULL)));
     
     return 0;
@@ -76,9 +89,10 @@ void cleanup_tc_topology(void) {
     while (i < tc_topology_size) {
         if (tc_topology[i].validity <= now) {
             // Remove expired link by shifting remaining entries
+            char from_str[16], to_str[16];
             printf("Removing expired TC link: %s -> %s\n",
-                   inet_ntoa(*(struct in_addr*)&tc_topology[i].from_addr),
-                   inet_ntoa(*(struct in_addr*)&tc_topology[i].to_addr));
+                   ip_to_string(tc_topology[i].from_addr, from_str),
+                   ip_to_string(tc_topology[i].to_addr, to_str));
             
             for (int j = i; j < tc_topology_size - 1; j++) {
                 tc_topology[j] = tc_topology[j + 1];
@@ -135,9 +149,10 @@ int build_topology_graph(struct topology_link* topology, int max_links) {
             topology[link_count].validity = neighbor_table[i].last_seen + 10;
             link_count++;
             
+            char node_str[16], neighbor_str[16];
             printf("Added direct link: %s -> %s (cost=1)\n",
-                   inet_ntoa(*(struct in_addr*)&node_ip),
-                   inet_ntoa(*(struct in_addr*)&neighbor_table[i].neighbor_addr));
+                   ip_to_string(node_ip, node_str),
+                   ip_to_string(neighbor_table[i].neighbor_addr, neighbor_str));
         }
     }
     
@@ -150,9 +165,10 @@ int build_topology_graph(struct topology_link* topology, int max_links) {
             topology[link_count] = tc_topology[i];
             link_count++;
             
+            char from_str[16], to_str[16];
             printf("Added TC link: %s -> %s (cost=%d)\n",
-                   inet_ntoa(*(struct in_addr*)&tc_topology[i].from_addr),
-                   inet_ntoa(*(struct in_addr*)&tc_topology[i].to_addr),
+                   ip_to_string(tc_topology[i].from_addr, from_str),
+                   ip_to_string(tc_topology[i].to_addr, to_str),
                    tc_topology[i].cost);
         }
     }
@@ -297,9 +313,10 @@ int add_routing_entry(uint32_t dest_ip, uint32_t next_hop, uint32_t metric, int 
             routing_table[i].metric = metric;
             routing_table[i].hops = hops;
             routing_table[i].timestamp = time(NULL);
+            char dest_str[16], hop_str[16];
             printf("Updated routing entry: %s via %s (cost=%d, hops=%d)\n",
-                   inet_ntoa(*(struct in_addr*)&dest_ip),
-                   inet_ntoa(*(struct in_addr*)&next_hop),
+                   ip_to_string(dest_ip, dest_str),
+                   ip_to_string(next_hop, hop_str),
                    metric, hops);
             return 0;
         }
@@ -313,9 +330,10 @@ int add_routing_entry(uint32_t dest_ip, uint32_t next_hop, uint32_t metric, int 
     routing_table[routing_table_size].timestamp = time(NULL);
     routing_table_size++;
     
+    char dest_str[16], hop_str[16];
     printf("Added routing entry: %s via %s (cost=%d, hops=%d)\n",
-           inet_ntoa(*(struct in_addr*)&dest_ip),
-           inet_ntoa(*(struct in_addr*)&next_hop),
+           ip_to_string(dest_ip, dest_str),
+           ip_to_string(next_hop, hop_str),
            metric, hops);
     
     return 0;
@@ -337,9 +355,10 @@ void print_routing_table(void) {
     time_t now = time(NULL);
     for (int i = 0; i < routing_table_size; i++) {
         int age = (int)(now - routing_table[i].timestamp);
+        char dest_str[16], hop_str[16];
         printf("%-15s  %-15s  %4d  %4d  %3ds\n",
-               inet_ntoa(*(struct in_addr*)&routing_table[i].dest_ip),
-               inet_ntoa(*(struct in_addr*)&routing_table[i].next_hop),
+               ip_to_string(routing_table[i].dest_ip, dest_str),
+               ip_to_string(routing_table[i].next_hop, hop_str),
                routing_table[i].metric,
                routing_table[i].hops,
                age);

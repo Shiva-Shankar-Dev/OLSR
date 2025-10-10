@@ -14,7 +14,7 @@
 void update_neighbor(uint32_t neighbor_addr, int link_type, uint8_t willingness){
     for (int i = 0; i < neighbor_count; i++) {
         if (neighbor_table[i].neighbor_addr == neighbor_addr) {
-            neighbor_table[i].link_type = link_type;
+            neighbor_table[i].link_status = link_type;
             neighbor_table[i].willingness = willingness;
             neighbor_table[i].last_seen = time(NULL);
             printf("Updated neighbor: %s (link_type=%d, willingness=%d)\n",
@@ -32,7 +32,7 @@ void add_neigbhor(uint32_t neighbor_addr, int link_type, uint8_t willingness){
     }
     
     neighbor_table[neighbor_count].neighbor_addr = neighbor_addr;
-    neighbor_table[neighbor_count].link_type = link_type;
+    neighbor_table[neighbor_count].link_status = link_type;
     neighbor_table[neighbor_count].willingness = willingness;
     neighbor_table[neighbor_count].last_seen = time(NULL);
     neighbor_table[neighbor_count].is_mpr = 0;

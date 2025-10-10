@@ -28,6 +28,7 @@
  * @brief Defines for node willingness to act as MPR
  * @{
  */
+#define MAX_MESSAGE_SIZE 512
 #define WILL_NEVER    0  /**< Node will never act as MPR */
 #define WILL_LOW      1  /**< Low willingness to act as MPR */
 #define WILL_DEFAULT  3  /**< Default willingness level */
@@ -115,10 +116,10 @@ extern uint16_t message_seq_num;
  * Represents a single message in the control queue with metadata.
  */
 struct control_message {
-    uint8_t msg_type;    /**< Type of message (MSG_HELLO, MSG_TC, etc.) */
-    uint32_t timestamp;  /**< Timestamp when message was created */
-    void* msg_data;      /**< Pointer to actual message data */
-    int data_size;       /**< Size of the message data in bytes */
+    uint8_t msg_type;        /**< Type of message (MSG_HELLO, MSG_TC, etc.) */
+    time_t timestamp;        /**< Timestamp when message was created */
+    uint8_t msg_data[512];   /**< Embedded message data buffer */
+    size_t data_size;        /**< Actual size of data in buffer */
 };
 
 /**
@@ -148,14 +149,12 @@ void init_control_queue(struct control_queue* queue);
  * @param data_size Size of the message data
  * @return 0 on success, -1 on failure
  */
-int push_to_control_queue(struct control_queue* queue, uint8_t msg_type, void* msg_data, int data_size);
-
+int push_to_control_queue(struct control_queue* queue,uint8_t msg_type,const uint8_t* msg_data,size_t data_size);
 /**
  * @brief Pop a message from the control queue
  * @param queue Pointer to the control queue
  * @return Pointer to control message, or NULL if queue is empty
  */
-struct control_message* pop_from_control_queue(struct control_queue* queue);
-
+int pop_from_control_queue(struct control_queue* queue,struct control_message* out_msg);
 #endif
 

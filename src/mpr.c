@@ -28,7 +28,7 @@
  * one of our one-hop neighbors.
  */
 struct two_hop_neighbor {
-    uint32_t neighbor_addr;      /**< IP address of the two-hop neighbor */
+    uint32_t neighbor_id;      /**< IP address of the two-hop neighbor */
     uint32_t one_hop_addr;       /**< IP address of one-hop neighbor providing reach */
     time_t last_seen;            /**< Timestamp of last update */
     struct two_hop_neighbor *next; /**< Pointer to next entry (for linked list) */
@@ -69,7 +69,7 @@ static char* id_to_string(uint32_t id, char* buffer) {
 int add_two_hop_neighbor(uint32_t two_hop_addr, uint32_t one_hop_addr) {
     // Check if two-hop neighbor already exists
     for (int i = 0; i < two_hop_count; i++) {
-        if (two_hop_table[i].neighbor_addr == two_hop_addr &&
+        if (two_hop_table[i].neighbor_id == two_hop_addr &&
             two_hop_table[i].one_hop_addr == one_hop_addr) {
             // Update existing entry
             two_hop_table[i].last_seen = time(NULL);
@@ -83,7 +83,7 @@ int add_two_hop_neighbor(uint32_t two_hop_addr, uint32_t one_hop_addr) {
         return -1;
     }
     
-    two_hop_table[two_hop_count].neighbor_addr = two_hop_addr;
+    two_hop_table[two_hop_count].neighbor_id = two_hop_addr;
     two_hop_table[two_hop_count].one_hop_addr = one_hop_addr;
     two_hop_table[two_hop_count].last_seen = time(NULL);
     two_hop_table[two_hop_count].next = NULL;
@@ -106,7 +106,7 @@ int add_two_hop_neighbor(uint32_t two_hop_addr, uint32_t one_hop_addr) {
  */
 int remove_two_hop_neighbor(uint32_t two_hop_addr, uint32_t one_hop_addr) {
     for (int i = 0; i < two_hop_count; i++) {
-        if (two_hop_table[i].neighbor_addr == two_hop_addr &&
+        if (two_hop_table[i].neighbor_id == two_hop_addr &&
             two_hop_table[i].one_hop_addr == one_hop_addr) {
             // Shift remaining entries
             for (int j = i; j < two_hop_count - 1; j++) {
@@ -154,12 +154,12 @@ static int count_reachable_two_hop(uint32_t one_hop_addr, int uncovered_only, in
  */
 static int is_only_path(uint32_t one_hop_addr) {
     for (int i = 0; i < two_hop_count; i++) {
-        uint32_t two_hop = two_hop_table[i].neighbor_addr;
+        uint32_t two_hop = two_hop_table[i].neighbor_id;
         
         // Count how many one-hop neighbors can reach this two-hop neighbor
         int path_count = 0;
         for (int j = 0; j < two_hop_count; j++) {
-            if (two_hop_table[j].neighbor_addr == two_hop) {
+            if (two_hop_table[j].neighbor_id == two_hop) {
                 path_count++;
             }
         }
@@ -225,13 +225,13 @@ int calculate_mpr_set(void) {
         if (neighbor_table[i].link_status == SYM_LINK &&
             neighbor_table[i].willingness == WILL_ALWAYS) {
             
-            mpr_set[mpr_count++] = neighbor_table[i].neighbor_addr;
+            mpr_set[mpr_count++] = neighbor_table[i].neighbor_id;
             neighbor_table[i].is_mpr = 1;
-            mark_covered_two_hop(neighbor_table[i].neighbor_addr, covered_set);
+            mark_covered_two_hop(neighbor_table[i].neighbor_id, covered_set);
             
             char addr_str[16];
             printf("Selected MPR (WILL_ALWAYS): %s\n",
-                   id_to_string(neighbor_table[i].neighbor_addr, addr_str));
+                   id_to_string(neighbor_table[i].neighbor_id, addr_str));
         }
     }
     
@@ -241,14 +241,14 @@ int calculate_mpr_set(void) {
             !neighbor_table[i].is_mpr &&
             neighbor_table[i].willingness != WILL_NEVER) {
             
-            if (is_only_path(neighbor_table[i].neighbor_addr)) {
-                mpr_set[mpr_count++] = neighbor_table[i].neighbor_addr;
+            if (is_only_path(neighbor_table[i].neighbor_id)) {
+                mpr_set[mpr_count++] = neighbor_table[i].neighbor_id;
                 neighbor_table[i].is_mpr = 1;
-                mark_covered_two_hop(neighbor_table[i].neighbor_addr, covered_set);
+                mark_covered_two_hop(neighbor_table[i].neighbor_id, covered_set);
                 
                 char addr_str[16];
                 printf("Selected MPR (only path): %s\n",
-                       id_to_string(neighbor_table[i].neighbor_addr, addr_str));
+                       id_to_string(neighbor_table[i].neighbor_id, addr_str));
             }
         }
     }
@@ -281,7 +281,7 @@ int calculate_mpr_set(void) {
                 neighbor_table[i].willingness != WILL_NEVER) {
                 
                 int new_coverage = count_reachable_two_hop(
-                    neighbor_table[i].neighbor_addr, 1, covered_set);
+                    neighbor_table[i].neighbor_id, 1, covered_set);
                 
                 // Select neighbor with most coverage, or highest willingness if tied
                 if (new_coverage > max_new_coverage ||
@@ -296,15 +296,15 @@ int calculate_mpr_set(void) {
         
         // If we found a neighbor to add
         if (best_neighbor_idx >= 0) {
-            mpr_set[mpr_count++] = neighbor_table[best_neighbor_idx].neighbor_addr;
+            mpr_set[mpr_count++] = neighbor_table[best_neighbor_idx].neighbor_id;
             neighbor_table[best_neighbor_idx].is_mpr = 1;
-            mark_covered_two_hop(neighbor_table[best_neighbor_idx].neighbor_addr, covered_set);
+            mark_covered_two_hop(neighbor_table[best_neighbor_idx].neighbor_id, covered_set);
             
             char addr_str[16];
             printf("Selected MPR (coverage=%d, will=%d): %s\n",
                    max_new_coverage,
                    neighbor_table[best_neighbor_idx].willingness,
-                   id_to_string(neighbor_table[best_neighbor_idx].neighbor_addr, addr_str));
+                   id_to_string(neighbor_table[best_neighbor_idx].neighbor_id, addr_str));
         } else {
             // No valid neighbor found but not all covered - shouldn't happen
             printf("Warning: Cannot cover all two-hop neighbors\n");
@@ -345,12 +345,12 @@ int get_mpr_count(void) {
 /**
  * @brief Check if a neighbor is selected as MPR
  * 
- * @param neighbor_addr IP address of the neighbor
+ * @param neighbor_id IP address of the neighbor
  * @return 1 if neighbor is MPR, 0 otherwise
  */
-int is_mpr(uint32_t neighbor_addr) {
+int is_mpr(uint32_t neighbor_id) {
     for (int i = 0; i < mpr_count; i++) {
-        if (mpr_set[i] == neighbor_addr) {
+        if (mpr_set[i] == neighbor_id) {
             return 1;
         }
     }
@@ -396,7 +396,7 @@ void print_two_hop_table(void) {
     for (int i = 0; i < two_hop_count; i++) {
         char two_hop_str[16], one_hop_str[16];
         printf("  %s via %s\n",
-               id_to_string(two_hop_table[i].neighbor_addr, two_hop_str),
+               id_to_string(two_hop_table[i].neighbor_id, two_hop_str),
                id_to_string(two_hop_table[i].one_hop_addr, one_hop_str));
     }
     
@@ -450,7 +450,7 @@ void update_two_hop_neighbors_from_hello(struct olsr_hello* hello_msg, uint32_t 
     // Check if sender is a symmetric neighbor
     int is_symmetric = 0;
     for (int i = 0; i < neighbor_count; i++) {
-        if (neighbor_table[i].neighbor_addr == sender_addr &&
+        if (neighbor_table[i].neighbor_id == sender_addr &&
             neighbor_table[i].link_status == SYM_LINK) {
             is_symmetric = 1;
             break;
@@ -463,17 +463,17 @@ void update_two_hop_neighbors_from_hello(struct olsr_hello* hello_msg, uint32_t 
     
     // Add all symmetric neighbors of the sender as our two-hop neighbors
     for (int i = 0; i < hello_msg->neighbor_count; i++) {
-        uint32_t two_hop_addr = hello_msg->neighbors[i].neighbor_addr;
+        uint32_t two_hop_addr = hello_msg->neighbors[i].neighbor_id;
         
         // Skip if the two-hop neighbor is actually us
-        if (two_hop_addr == node_ip) {
+        if (two_hop_addr == node_id) {
             continue;
         }
         
         // Skip if the two-hop neighbor is already a one-hop neighbor
         int is_one_hop = 0;
         for (int j = 0; j < neighbor_count; j++) {
-            if (neighbor_table[j].neighbor_addr == two_hop_addr) {
+            if (neighbor_table[j].neighbor_id == two_hop_addr) {
                 is_one_hop = 1;
                 break;
             }

@@ -76,7 +76,7 @@ struct olsr_hello {
 	 */
 	int reserved_slot;
 	struct hello_neighbor {
-		uint32_t neighbor_addr; /**< Node ID of discovered neighbor */
+		uint32_t neighbor_id; /**< Node ID of discovered neighbor */
 		uint8_t link_code;      /**< Link type and neighbor type code */
 	} *neighbors;            /**< Array of neighbor information */
 	int neighbor_count;      /**< Number of neighbors in the array */

@@ -21,28 +21,28 @@ static char* id_to_string(uint32_t id, char* buffer) {
     return buffer;
 }
 
-void update_neighbor(uint32_t neighbor_addr, int link_type, uint8_t willingness){
+void update_neighbor(uint32_t neighbor_id, int link_type, uint8_t willingness){
     for (int i = 0; i < neighbor_count; i++) {
-        if (neighbor_table[i].neighbor_addr == neighbor_addr) {
+        if (neighbor_table[i].neighbor_id == neighbor_id) {
             neighbor_table[i].link_status = link_type;
             neighbor_table[i].willingness = willingness;
             neighbor_table[i].last_seen = time(NULL);
             char addr_str[16];
             printf("Updated neighbor: %s (link_type=%d, willingness=%d)\n",
-                   id_to_string(neighbor_addr, addr_str),
+                   id_to_string(neighbor_id, addr_str),
                    link_type, willingness);
             return;
         }
     }
 }
 
-void add_neigbhor(uint32_t neighbor_addr, int link_type, uint8_t willingness){
+void add_neigbhor(uint32_t neighbor_id, int link_type, uint8_t willingness){
     if (neighbor_count >= MAX_NEIGHBORS) {
         printf("Error: Neighbor table full\n");
         return;
     }
     
-    neighbor_table[neighbor_count].neighbor_addr = neighbor_addr;
+    neighbor_table[neighbor_count].neighbor_id = neighbor_id;
     neighbor_table[neighbor_count].link_status = link_type;
     neighbor_table[neighbor_count].willingness = willingness;
     neighbor_table[neighbor_count].last_seen = time(NULL);
@@ -54,6 +54,6 @@ void add_neigbhor(uint32_t neighbor_addr, int link_type, uint8_t willingness){
     
     char addr_str[16];
     printf("Added new neighbor: %s (link_type=%d, willingness=%d)\n",
-           id_to_string(neighbor_addr, addr_str),
+           id_to_string(neighbor_id, addr_str),
            link_type, willingness);
 }

@@ -20,11 +20,11 @@
  * @brief Routing table entry structure
  * 
  * Represents a single entry in the OLSR routing table containing
- * destination, next hop, and cost information.
+ * destination, next hop, and cost information using application layer node IDs.
  */
 struct routing_table_entry {
-    uint32_t dest_ip;    /**< Destination IP address */
-    uint32_t next_hop;   /**< Next hop IP address */
+    uint32_t dest_id;    /**< Destination node ID (MAC/TDMA identifier) */
+    uint32_t next_hop_id; /**< Next hop node ID (MAC/TDMA identifier) */
     uint32_t metric;     /**< Cost/distance to destination */
     int hops;           /**< Number of hops to destination */
     time_t timestamp;   /**< When this entry was last updated */
@@ -34,11 +34,11 @@ struct routing_table_entry {
  * @brief Topology link structure
  * 
  * Represents a link in the network topology graph used for
- * shortest path calculation.
+ * shortest path calculation using application layer node IDs.
  */
 struct topology_link {
-    uint32_t from_addr;  /**< Source node IP address */
-    uint32_t to_addr;    /**< Destination node IP address */
+    uint32_t from_id;    /**< Source node ID (MAC/TDMA identifier) */
+    uint32_t to_id;      /**< Destination node ID (MAC/TDMA identifier) */
     int cost;           /**< Link cost (usually 1 for OLSR) */
     time_t validity;    /**< When this link expires */
 };
@@ -53,13 +53,13 @@ void calculate_routing_table(void);
 
 /**
  * @brief Add entry to routing table
- * @param dest_ip Destination IP address
- * @param next_hop Next hop IP address  
+ * @param dest_id Destination node ID (MAC/TDMA identifier)
+ * @param next_hop_id Next hop node ID (MAC/TDMA identifier)
  * @param metric Cost to destination
  * @param hops Number of hops to destination
  * @return 0 on success, -1 on failure
  */
-int add_routing_entry(uint32_t dest_ip, uint32_t next_hop, uint32_t metric, int hops);
+int add_routing_entry(uint32_t dest_id, uint32_t next_hop_id, uint32_t metric, int hops);
 
 /**
  * @brief Print current routing table
@@ -68,7 +68,7 @@ void print_routing_table(void);
 
 /**
  * @brief Find shortest path using Dijkstra's algorithm
- * @param source Source node IP address
+ * @param source Source node ID (MAC/TDMA identifier)
  * @param topology Array of topology links
  * @param link_count Number of links in topology
  */
@@ -94,16 +94,40 @@ void update_routing_table(void);
 
 /**
  * @brief Add or update a topology link from TC message
- * @param from_addr Source node address
- * @param to_addr Destination node address
+ * @param from_id Source node ID (MAC/TDMA identifier)
+ * @param to_id Destination node ID (MAC/TDMA identifier)
  * @param validity Validity time
  * @return 0 on success, -1 if topology table is full
  */
-int update_tc_topology(uint32_t from_addr, uint32_t to_addr, time_t validity);
+int update_tc_topology(uint32_t from_id, uint32_t to_id, time_t validity);
 
 /**
  * @brief Remove expired TC topology links
  */
 void cleanup_tc_topology(void);
+
+/**
+ * @brief Get next hop information for a destination node
+ * @param dest_id Destination node ID (MAC/TDMA identifier)
+ * @param next_hop_id Pointer to store the next hop node ID
+ * @param metric Pointer to store the route metric/cost
+ * @param hops Pointer to store the number of hops
+ * @return 0 on success, -1 if route not found
+ */
+int get_next_hop(uint32_t dest_id, uint32_t* next_hop_id, uint32_t* metric, int* hops);
+
+/**
+ * @brief Check if a route exists to the destination
+ * @param dest_id Destination node ID (MAC/TDMA identifier)
+ * @return 1 if route exists, 0 otherwise
+ */
+int has_route_to(uint32_t dest_id);
+
+/**
+ * @brief Get routing table entry by destination
+ * @param dest_id Destination node ID (MAC/TDMA identifier)
+ * @return Pointer to routing entry or NULL if not found
+ */
+struct routing_table_entry* get_routing_entry(uint32_t dest_id);
 
 #endif // ROUTING_H

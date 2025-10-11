@@ -66,7 +66,7 @@
  * Contains information about link status, willingness, and timestamps.
  */
 struct neighbor_entry {
-    uint32_t neighbor_addr;      /**< IP address of the neighbor */
+    uint32_t neighbor_id;      /**< IP address of the neighbor */
     uint8_t link_status;         /**< Link status (SYM_LINK, ASYM_LINK, etc.) */
     time_t last_seen;            /**< Timestamp of last received message */
     uint8_t willingness;         /**< Neighbor's willingness to act as MPR */
@@ -105,7 +105,7 @@ extern int neighbor_count;
 /** @brief This node's willingness value */
 extern uint8_t node_willingness;
 /** @brief This node's IP address */
-extern uint32_t node_ip;
+extern uint32_t node_id;
 /** @brief Global message sequence number */
 extern uint16_t message_seq_num;
 

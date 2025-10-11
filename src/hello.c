@@ -43,7 +43,7 @@ int neighbor_count = 0;
 /** @brief This node's willingness to act as MPR */
 uint8_t node_willingness = WILL_DEFAULT;
 /** @brief This node's IP address */
-uint32_t node_ip = 0;
+uint32_t node_id = 0;
 /** @brief Global message sequence number counter */
 uint16_t message_seq_num = 0;
 
@@ -113,7 +113,7 @@ struct olsr_hello* generate_hello_message(void) {
         }
         
         for (int i = 0; i < neighbor_count; i++) {
-            hello_msg->neighbors[i].neighbor_addr = neighbor_table[i].neighbor_addr;
+            hello_msg->neighbors[i].neighbor_id = neighbor_table[i].neighbor_id;
             hello_msg->neighbors[i].link_code = neighbor_table[i].link_status;
         }
     } else {
@@ -150,7 +150,7 @@ void send_hello_message(struct control_queue* queue) {
     struct olsr_message msg;
     msg.msg_type = MSG_HELLO;      /**< Set message type to HELLO */
     msg.vtime = 6;                 /**< Validity time (encoded) */
-    msg.originator = node_ip;      /**< Set originator to this node's IP */
+    msg.originator = node_id;      /**< Set originator to this node's IP */
     msg.ttl = 1;                   /**< TTL = 1 for HELLO (one-hop only) */
     msg.hop_count = 0;             /**< Initial hop count */
     msg.msg_seq_num = ++message_seq_num; /**< Increment and assign sequence number */
@@ -208,7 +208,7 @@ void process_hello_message(struct olsr_message* msg, uint32_t sender_addr) {
     // Check if we are mentioned in the sender's neighbor list (bidirectional link)
     int we_are_mentioned = 0;
     for (int i = 0; i < hello_msg->neighbor_count; i++) {
-        if (hello_msg->neighbors[i].neighbor_addr == node_ip) {
+        if (hello_msg->neighbors[i].neighbor_id == node_id) {
             we_are_mentioned = 1;
             printf("We are mentioned in neighbor's HELLO message\n");
             break;

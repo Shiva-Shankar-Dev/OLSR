@@ -171,7 +171,7 @@ void send_tc_message(void) {
     struct olsr_message msg;
     msg.msg_type = MSG_TC;
     msg.vtime = 15;           // Longer validity than HELLO
-    msg.originator = node_ip;
+    msg.originator = node_id;
     msg.ttl = 255;           // Maximum TTL for TC
     msg.hop_count = 0;
     msg.msg_seq_num = ++message_seq_num;

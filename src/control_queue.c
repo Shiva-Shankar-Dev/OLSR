@@ -1,6 +1,8 @@
 #include <string.h>
 #include <time.h>
-#include "olsr.h"
+#include "../include/packet.h"
+#include <stdio.h>
+#include <stdint.h>
 
 void init_control_queue(struct control_queue* queue) {
     queue->front = 0;

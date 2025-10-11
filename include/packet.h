@@ -68,6 +68,13 @@ struct olsr_hello {
 	uint16_t hello_interval; /**< Interval between HELLO messages in seconds */
 	uint8_t willingness;      /**< Node's willingness to act as MPR (0-7) */
 	uint8_t reserved;        /**< Slot number reserved -1 for not reserved, slot numbers for reserved */
+
+	/**
+	 * @brief TDMA slot reservation announcement
+	 * @details -1 means no reservation, >=0 means slot number reserved
+	 * Example: reserved_slot = 10 means "I am using slot 10"
+	 */
+	int reserved_slot;
 	struct hello_neighbor {
 		uint32_t neighbor_addr; /**< Node ID of discovered neighbor */
 		uint8_t link_code;      /**< Link type and neighbor type code */

@@ -34,6 +34,23 @@ struct olsr_hello* generate_hello_message(void);
 void send_hello_message(struct control_queue* queue);
 
 /**
+ * @brief Set this node's TDMA slot reservation
+ * @param slot Slot number to reserve (>=0), -1 to clear
+ */
+void set_my_slot_reservation(int slot);
+
+/**
+ * @brief Clear this node's TDMA slot reservation
+ */
+void clear_my_slot_reservation(void);
+
+/**
+ * @brief Get this node's current reserved slot
+ * @return Reserved slot number, or -1 if none
+ */
+int get_my_reserved_slot(void);
+
+/**
  * @brief Process a received HELLO message
  * 
  * Processes an incoming HELLO message to update neighbor information

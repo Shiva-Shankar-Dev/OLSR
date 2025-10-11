@@ -194,10 +194,10 @@ void dijkstra_shortest_path(uint32_t source, struct topology_link* topology, int
     
     // Add all nodes from topology links
     for (int i = 0; i < link_count && node_count < MAX_NODES; i++) {
-        if ( -1==find_node_index(nodes, node_count, topology[i].from_addr) ) {
+        if (-1==find_node_index(nodes, node_count, topology[i].from_addr)) {
             nodes[node_count++] = topology[i].from_addr;
         }
-        if ( -1==find_node_index(nodes, node_count, topology[i].to_addr) ) {
+        if (-1==find_node_index(nodes, node_count, topology[i].to_addr)) {
             nodes[node_count++] = topology[i].to_addr;
         }
     }

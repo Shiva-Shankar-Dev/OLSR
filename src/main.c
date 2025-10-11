@@ -6,6 +6,7 @@
 #include "../include/tc.h"
 #include "../include/olsr.h"
 #include "../include/routing.h"
+#include "../src/control_queue.c"
 
 void init_olsr(void){
     // Initialization code for OLSR daemon

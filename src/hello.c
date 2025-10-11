@@ -156,9 +156,10 @@ void send_hello_message(struct control_queue* queue) {
     msg.msg_seq_num = ++message_seq_num; /**< Increment and assign sequence number */
     msg.body = hello_msg;          /**< Attach HELLO message body */
     
-    // Calculate total message size
-    msg.msg_size = sizeof(struct olsr_message) + sizeof(struct olsr_hello) + 
-                   (hello_msg->neighbor_count * sizeof(struct hello_neighbor));
+    // Calculate serialized message size for accurate reporting
+    uint8_t temp_buffer[1024];
+    int serialized_hello_size = serialize_hello(hello_msg, temp_buffer);
+    msg.msg_size = sizeof(struct olsr_message) + serialized_hello_size;
 
     // Debugging output
     printf("HELLO message sent (type=%d, size=%d bytes, seq=%d)\n", msg.msg_type, msg.msg_size, msg.msg_seq_num);
@@ -248,12 +249,24 @@ int push_hello_to_queue(struct control_queue* queue) {
         return -1;
     }
 
-    // Push to control queue
-    int result = push_to_control_queue(queue, MSG_HELLO, (const uint8_t*)hello_msg, sizeof(struct olsr_hello));
+    // Serialize HELLO message to buffer
+    uint8_t serialized_buffer[1024];  // Buffer for serialized data
+    int serialized_size = serialize_hello(hello_msg, serialized_buffer);
+    
+    if (serialized_size <= 0) {
+        printf("Error: Failed to serialize HELLO message\n");
+        return -1;
+    }
+
+    // Push serialized data to control queue
+    int result = push_to_control_queue(queue, MSG_HELLO, serialized_buffer, serialized_size);
+    
     if (hello_msg->reserved_slot == -1)
-        printf("HELLO message created and queued (willingness=%d, neighbors=%d)\n", hello_msg->willingness, hello_msg->neighbor_count);
+        printf("HELLO message serialized and queued (willingness=%d, neighbors=%d, size=%d bytes)\n", 
+               hello_msg->willingness, hello_msg->neighbor_count, serialized_size);
     else
-        printf("HELLO message created and queued (willingness=%d, slot reserved=%d, neighbors=%d)\n", hello_msg->willingness, hello_msg->reserved_slot, hello_msg->neighbor_count);
+        printf("HELLO message serialized and queued (willingness=%d, slot reserved=%d, neighbors=%d, size=%d bytes)\n", 
+               hello_msg->willingness, hello_msg->reserved_slot, hello_msg->neighbor_count, serialized_size);
     return result;
 }
 

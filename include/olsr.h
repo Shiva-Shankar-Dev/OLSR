@@ -58,6 +58,16 @@
 #define TC_INTERVAL    5  /**< TC message interval in seconds */
 /** @} */
 
+/**
+ * @defgroup TDMAConstants TDMA Slot Management Constants
+ * @brief Constants for TDMA slot reservation and management
+ * @{
+ */
+#define MAX_TWO_HOP_NEIGHBORS 100    /**< Maximum two-hop neighbors in HELLO */
+#define MAX_TDMA_SLOTS 100           /**< Maximum TDMA slots in system */
+#define SLOT_RESERVATION_TIMEOUT 30  /**< Seconds before reservation expires */
+/** @} */
+
 #define MAX_NEIGHBORS 40  /**< Maximum number of neighbors in table */
 
 /**

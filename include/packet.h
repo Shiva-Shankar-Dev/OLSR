@@ -59,6 +59,18 @@ struct olsr_tc{
 };
 
 /**
+ * @brief Two-hop neighbor with TDMA information
+ * 
+ * Structure for transmitting two-hop neighbor TDMA slot reservations
+ * in HELLO messages for collision avoidance.
+ */
+struct two_hop_hello_neighbor {
+    uint32_t two_hop_id;        /**< Two-hop neighbor node ID */
+    uint32_t via_neighbor_id;   /**< One-hop neighbor providing the path */
+    int reserved_slot;          /**< TDMA slot reserved by two-hop neighbor (-1 = no reservation) */
+};
+
+/**
  * @brief HELLO message structure
  * 
  * HELLO messages are used for neighbor discovery and link sensing.
@@ -80,6 +92,10 @@ struct olsr_hello {
 		uint8_t link_code;      /**< Link type and neighbor type code */
 	} *neighbors;            /**< Array of neighbor information */
 	int neighbor_count;      /**< Number of neighbors in the array */
+	
+	// NEW: Two-hop neighbor TDMA information
+	uint8_t two_hop_count;      /**< Number of two-hop neighbors */
+	struct two_hop_hello_neighbor* two_hop_neighbors; /**< Two-hop neighbor TDMA info */
 };
 
 /**

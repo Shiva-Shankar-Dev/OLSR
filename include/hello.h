@@ -129,4 +129,13 @@ void update_mpr_selector_status(struct olsr_hello* hello_msg, uint32_t sender_id
  */
 int get_mpr_selector_count(void);
 
+// TDMA slot management functions
+void set_my_slot_reservation(int slot_number);
+void update_neighbor_slot_reservation(uint32_t node_id, int slot_number, int hop_distance);
+int get_neighbor_slot_reservation(uint32_t node_id);
+int is_slot_available(int slot_number);
+int get_occupied_slots(int* occupied_slots, int max_slots);
+void print_tdma_reservations(void);
+void cleanup_expired_reservations(int max_age);
+
 #endif

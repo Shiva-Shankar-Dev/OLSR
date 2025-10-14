@@ -15,6 +15,19 @@
 #include "packet.h"
 
 /**
+ * @brief Two-hop neighbor structure
+ * 
+ * Represents a neighbor that is two hops away, reachable through
+ * one of our one-hop neighbors.
+ */
+struct two_hop_neighbor {
+    uint32_t neighbor_id;      /**< IP address of the two-hop neighbor */
+    uint32_t one_hop_addr;     /**< IP address of one-hop neighbor providing reach */
+    time_t last_seen;          /**< Timestamp of last update */
+    struct two_hop_neighbor *next; /**< Pointer to next entry (for linked list) */
+};
+
+/**
  * @brief Add or update a two-hop neighbor
  * 
  * Adds a new two-hop neighbor to the table or updates an existing one.
@@ -122,5 +135,11 @@ void update_two_hop_neighbors_from_hello(struct olsr_hello* hello_msg, uint32_t 
  * @return Number of two-hop neighbors in the table
  */
 int get_two_hop_count(void);
+
+/**
+ * @brief Get pointer to two-hop neighbor table
+ * @return Pointer to two-hop neighbor table array
+ */
+struct two_hop_neighbor* get_two_hop_table(void);
 
 #endif

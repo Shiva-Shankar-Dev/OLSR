@@ -38,28 +38,20 @@ int neighbor_count = 0;
 uint8_t node_willingness = WILL_DEFAULT;
 /** @brief This node's IP address */
 uint32_t node_id = 0;
+
+/** @brief TDMA slot reservation table for neighbors */
+static struct {
+    uint32_t node_id;
+    int reserved_slot;
+    time_t last_updated;
+    int hop_distance;  // 1 for direct neighbors, 2 for two-hop
+} neighbor_slots[MAX_NEIGHBORS + MAX_TWO_HOP_NEIGHBORS];
+static int slot_table_size = 0;
+
+/** @brief This node's TDMA slot reservation */
+static int my_reserved_slot = -1;  // -1 means no reservation
 /** @brief Global message sequence number counter */
 uint16_t message_seq_num = 0;
-
-/**
- * @brief This node's reserved TDMA slot (-1 means no reservation)
- */
-int my_reserved_slot = -1;
-
-/**
- * @brief Set this node's TDMA slot reservation
- * @param slot Slot number to reserve (>=0), -1 to clear
- */
-void set_my_slot_reservation(int slot) {
-    my_reserved_slot = slot;
-}
-
-/**
- * @brief Clear this node's TDMA slot reservation
- */
-void clear_my_slot_reservation(void) {
-    my_reserved_slot = -1;
-}
 
 /**
  * @brief Get this node's current reserved slot
@@ -95,6 +87,7 @@ struct olsr_hello* generate_hello_message(void) {
     hello_msg->neighbor_count = neighbor_count;
     hello_msg->reserved_slot = my_reserved_slot; // TDMA slot reservation
 
+    // One-hop neighbors (existing code)
     if (neighbor_count > 0) {
         static struct hello_neighbor neighbors_static[MAX_NEIGHBORS];
         hello_msg->neighbors = neighbors_static;
@@ -114,10 +107,34 @@ struct olsr_hello* generate_hello_message(void) {
         hello_msg->neighbors = NULL;
     }
     
-    if (hello_msg->reserved_slot == -1)
-        printf("Generated HELLO: willingness=%d, neighbors=%d, no slot reserved\n", hello_msg->willingness, hello_msg->neighbor_count);
-    else
-        printf("Generated HELLO: willingness=%d, neighbors=%d, reserved_slot=%d\n", hello_msg->willingness, hello_msg->neighbor_count, hello_msg->reserved_slot);
+    // NEW: Two-hop neighbors with TDMA information
+    int two_hop_count = get_two_hop_count();
+    hello_msg->two_hop_count = 0;
+    
+    if (two_hop_count > 0 && two_hop_count <= MAX_TWO_HOP_NEIGHBORS) {
+        static struct two_hop_hello_neighbor two_hop_static[MAX_TWO_HOP_NEIGHBORS];
+        hello_msg->two_hop_neighbors = two_hop_static;
+        memset(hello_msg->two_hop_neighbors, 0, two_hop_count * sizeof(struct two_hop_hello_neighbor));
+        
+        // Get two-hop neighbor information from MPR module
+        struct two_hop_neighbor* two_hop_list = get_two_hop_table();
+        
+        for (int i = 0; i < two_hop_count && hello_msg->two_hop_count < MAX_TWO_HOP_NEIGHBORS; i++) {
+            hello_msg->two_hop_neighbors[hello_msg->two_hop_count].two_hop_id = two_hop_list[i].neighbor_id;
+            hello_msg->two_hop_neighbors[hello_msg->two_hop_count].via_neighbor_id = two_hop_list[i].one_hop_addr;
+            
+            // Get TDMA slot reservation for this two-hop neighbor
+            hello_msg->two_hop_neighbors[hello_msg->two_hop_count].reserved_slot = get_neighbor_slot_reservation(two_hop_list[i].neighbor_id);
+            
+            hello_msg->two_hop_count++;
+        }
+    } else {
+        hello_msg->two_hop_neighbors = NULL;
+    }
+    
+    printf("Generated HELLO: willingness=%d, neighbors=%d, two_hop=%d, our_slot=%d\n", 
+           hello_msg->willingness, hello_msg->neighbor_count, hello_msg->two_hop_count, 
+           hello_msg->reserved_slot);
     
     return hello_msg;
 }
@@ -192,12 +209,25 @@ void process_hello_message(struct olsr_message* msg, uint32_t sender_addr) {
     struct olsr_hello* hello_msg = (struct olsr_hello*)msg->body;
     
     char sender_str[16];
-    if (hello_msg->reserved_slot == -1) {
-     printf("Received HELLO from %s: willingness=%d, neighbors=%d, no slot reserved\n", id_to_string(sender_addr, sender_str), hello_msg->willingness, hello_msg->neighbor_count);
-     printf("  -> Node %u has no slot reservation\n", sender_addr);
-    } else {
-     printf("Received HELLO from %s: willingness=%d, neighbors=%d, reserved_slot=%d\n", id_to_string(sender_addr, sender_str), hello_msg->willingness, hello_msg->neighbor_count, hello_msg->reserved_slot);
-     printf("  -> Node %u is using slot %d\n", sender_addr, hello_msg->reserved_slot);
+    printf("Received HELLO from %s: willingness=%d, neighbors=%d, two_hop=%d, slot=%d\n", 
+           id_to_string(sender_addr, sender_str), hello_msg->willingness, 
+           hello_msg->neighbor_count, hello_msg->two_hop_count, hello_msg->reserved_slot);
+    
+    // Update sender's TDMA slot reservation
+    update_neighbor_slot_reservation(sender_addr, hello_msg->reserved_slot, 1);
+    
+    // Process two-hop neighbor TDMA information
+    for (int i = 0; i < hello_msg->two_hop_count; i++) {
+        uint32_t two_hop_id = hello_msg->two_hop_neighbors[i].two_hop_id;
+        int slot = hello_msg->two_hop_neighbors[i].reserved_slot;
+        
+        if (two_hop_id != node_id) { // Don't process info about ourselves
+            update_neighbor_slot_reservation(two_hop_id, slot, 2);
+            
+            char two_hop_str[16];
+            printf("  Two-hop via %s: Node %s using slot %d\n",
+                   sender_str, id_to_string(two_hop_id, two_hop_str), slot);
+        }
     }
     
     // Check if we are mentioned in the sender's neighbor list (bidirectional link)
@@ -226,6 +256,12 @@ void process_hello_message(struct olsr_message* msg, uint32_t sender_addr) {
     
     // Update MPR selector status
     update_mpr_selector_status(hello_msg, sender_addr);
+    
+    // Clean up expired TDMA reservations periodically
+    cleanup_expired_reservations(SLOT_RESERVATION_TIMEOUT);
+    
+    // Print current TDMA reservations for debugging
+    print_tdma_reservations();
 }
 
 /**
@@ -345,16 +381,28 @@ int push_hello_to_queue(struct control_queue* queue) {
  */
 int serialize_hello(const struct olsr_hello* hello, uint8_t* buffer) {
     int offset = 0;
+    
+    // Serialize basic HELLO fields
     memcpy(buffer + offset, &hello->hello_interval, sizeof(uint16_t)); offset += sizeof(uint16_t);
     memcpy(buffer + offset, &hello->willingness, sizeof(uint8_t)); offset += sizeof(uint8_t);
     memcpy(buffer + offset, &hello->neighbor_count, sizeof(uint8_t)); offset += sizeof(uint8_t);
-    // Serialize reserved_slot (4 bytes)
     memcpy(buffer + offset, &hello->reserved_slot, sizeof(int)); offset += sizeof(int);
-    // Serialize neighbors
+    
+    // Serialize one-hop neighbors
     for (int i = 0; i < hello->neighbor_count; i++) {
         memcpy(buffer + offset, &hello->neighbors[i], sizeof(struct hello_neighbor));
         offset += sizeof(struct hello_neighbor);
     }
+    
+    // Serialize two-hop neighbor count
+    memcpy(buffer + offset, &hello->two_hop_count, sizeof(uint8_t)); offset += sizeof(uint8_t);
+    
+    // Serialize two-hop neighbors with TDMA information
+    for (int i = 0; i < hello->two_hop_count; i++) {
+        memcpy(buffer + offset, &hello->two_hop_neighbors[i], sizeof(struct two_hop_hello_neighbor));
+        offset += sizeof(struct two_hop_hello_neighbor);
+    }
+    
     return offset;
 }
 
@@ -366,12 +414,14 @@ int serialize_hello(const struct olsr_hello* hello, uint8_t* buffer) {
  */
 int deserialize_hello(struct olsr_hello* hello, const uint8_t* buffer) {
     int offset = 0;
+    
+    // Deserialize basic HELLO fields
     memcpy(&hello->hello_interval, buffer + offset, sizeof(uint16_t)); offset += sizeof(uint16_t);
     memcpy(&hello->willingness, buffer + offset, sizeof(uint8_t)); offset += sizeof(uint8_t);
     memcpy(&hello->neighbor_count, buffer + offset, sizeof(uint8_t)); offset += sizeof(uint8_t);
-    // Deserialize reserved_slot (4 bytes)
     memcpy(&hello->reserved_slot, buffer + offset, sizeof(int)); offset += sizeof(int);
-    // Deserialize neighbors
+    
+    // Deserialize one-hop neighbors
     if (hello->neighbor_count > 0) {
         static struct hello_neighbor neighbors_static[MAX_NEIGHBORS];
         hello->neighbors = neighbors_static;
@@ -382,6 +432,22 @@ int deserialize_hello(struct olsr_hello* hello, const uint8_t* buffer) {
     } else {
         hello->neighbors = NULL;
     }
+    
+    // Deserialize two-hop neighbor count
+    memcpy(&hello->two_hop_count, buffer + offset, sizeof(uint8_t)); offset += sizeof(uint8_t);
+    
+    // Deserialize two-hop neighbors
+    if (hello->two_hop_count > 0) {
+        static struct two_hop_hello_neighbor two_hop_static[MAX_TWO_HOP_NEIGHBORS];
+        hello->two_hop_neighbors = two_hop_static;
+        for (int i = 0; i < hello->two_hop_count; i++) {
+            memcpy(&hello->two_hop_neighbors[i], buffer + offset, sizeof(struct two_hop_hello_neighbor));
+            offset += sizeof(struct two_hop_hello_neighbor);
+        }
+    } else {
+        hello->two_hop_neighbors = NULL;
+    }
+    
     return offset;
 }
 
@@ -417,4 +483,201 @@ void print_neighbor_table(void) {
     }
     printf("Total neighbors: %d\n", neighbor_count);
     printf("=======================\n\n");
+}
+
+/**
+ * @brief Set this node's TDMA slot reservation
+ * @param slot_number TDMA slot number (-1 for no reservation)
+ */
+void set_my_slot_reservation(int slot_number) {
+    my_reserved_slot = slot_number;
+    if (slot_number >= 0) {
+        printf("Set my TDMA slot reservation to: %d\n", slot_number);
+    } else {
+        printf("Cleared my TDMA slot reservation\n");
+    }
+}
+
+/**
+ * @brief Update neighbor's TDMA slot reservation
+ * @param node_id Neighbor's node ID
+ * @param slot_number TDMA slot number (-1 for no reservation)
+ * @param hop_distance 1 for direct neighbor, 2 for two-hop neighbor
+ */
+void update_neighbor_slot_reservation(uint32_t neighbor_id, int slot_number, int hop_distance) {
+    extern uint32_t node_id; // Reference to the global node_id
+    if (neighbor_id == 0 || neighbor_id == node_id) return; // Skip invalid or self
+    
+    time_t now = time(NULL);
+    
+    // Find existing entry
+    for (int i = 0; i < slot_table_size; i++) {
+        if (neighbor_slots[i].node_id == neighbor_id) {
+            neighbor_slots[i].reserved_slot = slot_number;
+            neighbor_slots[i].last_updated = now;
+            neighbor_slots[i].hop_distance = hop_distance;
+            
+            char node_str[16];
+            if (slot_number >= 0) {
+                printf("Updated slot reservation: Node %s (%d-hop) -> Slot %d\n", 
+                       id_to_string(neighbor_id, node_str), hop_distance, slot_number);
+            } else {
+                printf("Cleared slot reservation: Node %s (%d-hop)\n", 
+                       id_to_string(neighbor_id, node_str), hop_distance);
+            }
+            return;
+        }
+    }
+    
+    // Add new entry if space available and slot is valid
+    if (slot_table_size < MAX_NEIGHBORS + MAX_TWO_HOP_NEIGHBORS && slot_number >= 0) {
+        neighbor_slots[slot_table_size].node_id = neighbor_id;
+        neighbor_slots[slot_table_size].reserved_slot = slot_number;
+        neighbor_slots[slot_table_size].last_updated = now;
+        neighbor_slots[slot_table_size].hop_distance = hop_distance;
+        slot_table_size++;
+        
+        char node_str[16];
+        printf("Added slot reservation: Node %s (%d-hop) -> Slot %d\n", 
+               id_to_string(neighbor_id, node_str), hop_distance, slot_number);
+    }
+}
+
+/**
+ * @brief Get neighbor's TDMA slot reservation
+ * @param node_id Neighbor's node ID
+ * @return Slot number, or -1 if no reservation
+ */
+int get_neighbor_slot_reservation(uint32_t node_id) {
+    for (int i = 0; i < slot_table_size; i++) {
+        if (neighbor_slots[i].node_id == node_id) {
+            return neighbor_slots[i].reserved_slot;
+        }
+    }
+    return -1; // No reservation found
+}
+
+/**
+ * @brief Check if a TDMA slot is available for use
+ * @param slot_number Slot number to check
+ * @return 1 if available, 0 if occupied by any neighbor (1-hop or 2-hop)
+ */
+int is_slot_available(int slot_number) {
+    if (slot_number < 0) return 0;
+    
+    // Check if we are using this slot
+    if (my_reserved_slot == slot_number) {
+        return 0; // We are using it
+    }
+    
+    // Check if any one-hop or two-hop neighbor is using this slot
+    for (int i = 0; i < slot_table_size; i++) {
+        if (neighbor_slots[i].reserved_slot == slot_number) {
+            char node_str[16];
+            printf("Slot %d is occupied by node %s (%d-hop)\n", 
+                   slot_number, id_to_string(neighbor_slots[i].node_id, node_str),
+                   neighbor_slots[i].hop_distance);
+            return 0; // Slot occupied
+        }
+    }
+    
+    return 1; // Slot available
+}
+
+/**
+ * @brief Get list of occupied slots in neighborhood
+ * @param occupied_slots Array to store occupied slot numbers
+ * @param max_slots Maximum slots to return
+ * @return Number of occupied slots found
+ */
+int get_occupied_slots(int* occupied_slots, int max_slots) {
+    int count = 0;
+    
+    // Add our own slot if we have one
+    if (my_reserved_slot >= 0 && count < max_slots) {
+        occupied_slots[count++] = my_reserved_slot;
+    }
+    
+    // Add neighbor slots
+    for (int i = 0; i < slot_table_size && count < max_slots; i++) {
+        if (neighbor_slots[i].reserved_slot >= 0) {
+            // Check if already in list (avoid duplicates)
+            int already_added = 0;
+            for (int j = 0; j < count; j++) {
+                if (occupied_slots[j] == neighbor_slots[i].reserved_slot) {
+                    already_added = 1;
+                    break;
+                }
+            }
+            if (!already_added) {
+                occupied_slots[count++] = neighbor_slots[i].reserved_slot;
+            }
+        }
+    }
+    
+    return count;
+}
+
+/**
+ * @brief Print current TDMA slot reservations
+ */
+void print_tdma_reservations(void) {
+    printf("\n=== TDMA Slot Reservations ===\n");
+    printf("%-15s %-10s %-12s %-8s\n", "Node ID", "Slot", "Age (sec)", "Hops");
+    printf("------------------------------------------\n");
+    
+    // Print our reservation first
+    if (my_reserved_slot >= 0) {
+        printf("%-15s %-10d %-12s %-8s\n", "THIS_NODE", my_reserved_slot, "N/A", "0");
+    }
+    
+    // Print neighbor reservations
+    time_t now = time(NULL);
+    for (int i = 0; i < slot_table_size; i++) {
+        if (neighbor_slots[i].reserved_slot >= 0) {
+            char node_str[16];
+            printf("%-15s %-10d %-12ld %-8d\n",
+                   id_to_string(neighbor_slots[i].node_id, node_str),
+                   neighbor_slots[i].reserved_slot,
+                   (long)(now - neighbor_slots[i].last_updated),
+                   neighbor_slots[i].hop_distance);
+        }
+    }
+    
+    printf("===============================\n\n");
+}
+
+/**
+ * @brief Clean up expired slot reservations
+ * @param max_age Maximum age in seconds before expiration
+ */
+void cleanup_expired_reservations(int max_age) {
+    time_t now = time(NULL);
+    int removed_count = 0;
+    
+    // Compact the array by removing expired entries
+    int write_pos = 0;
+    for (int read_pos = 0; read_pos < slot_table_size; read_pos++) {
+        if ((now - neighbor_slots[read_pos].last_updated) <= max_age) {
+            // Keep this entry
+            if (write_pos != read_pos) {
+                neighbor_slots[write_pos] = neighbor_slots[read_pos];
+            }
+            write_pos++;
+        } else {
+            // Remove this entry
+            char node_str[16];
+            printf("Expired slot reservation: Node %s (Slot %d, Age %ld sec)\n",
+                   id_to_string(neighbor_slots[read_pos].node_id, node_str),
+                   neighbor_slots[read_pos].reserved_slot,
+                   (long)(now - neighbor_slots[read_pos].last_updated));
+            removed_count++;
+        }
+    }
+    
+    slot_table_size = write_pos;
+    
+    if (removed_count > 0) {
+        printf("Cleaned up %d expired TDMA reservations\n", removed_count);
+    }
 }

@@ -22,7 +22,7 @@ void init_olsr(void){
         printf("Popped message of type %d with size %zu\n", msg.msg_type, msg.data_size);
         sleep(HELLO_INTERVAL);
     }
-    
+
 }
 int main() {
     printf("OLSR Starting...\n");

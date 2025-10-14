@@ -493,3 +493,11 @@ void update_two_hop_neighbors_from_hello(struct olsr_hello* hello_msg, uint32_t 
 int get_two_hop_count(void) {
     return two_hop_count;
 }
+
+/**
+ * @brief Get pointer to two-hop neighbor table
+ * @return Pointer to two-hop neighbor table array
+ */
+struct two_hop_neighbor* get_two_hop_table(void) {
+    return two_hop_table;
+}

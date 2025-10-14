@@ -123,4 +123,10 @@ void print_neighbor_table(void);
  */
 void update_mpr_selector_status(struct olsr_hello* hello_msg, uint32_t sender_id);
 
+/**
+ * @brief Get count of neighbors who selected us as MPR
+ * @return Number of MPR selectors
+ */
+int get_mpr_selector_count(void);
+
 #endif

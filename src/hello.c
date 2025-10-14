@@ -277,6 +277,21 @@ void update_mpr_selector_status(struct olsr_hello* hello_msg, uint32_t sender_id
 }
 
 /**
+ * @brief Get count of neighbors who selected us as MPR
+ * @return Number of MPR selectors
+ */
+int get_mpr_selector_count(void) {
+    int count = 0;
+    for (int i = 0; i < neighbor_count; i++) {
+        if (neighbor_table[i].link_status == SYM_LINK &&
+            neighbor_table[i].is_mpr_selector) {
+            count++;
+        }
+    }
+    return count;
+}
+
+/**
  * @brief Push a HELLO message to the control queue
  * 
  * Creates a new HELLO message and adds it to the specified control queue

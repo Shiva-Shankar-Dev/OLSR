@@ -148,19 +148,7 @@ void send_tc_message(void) {
     // No cleanup needed for static allocations
 }
 
-/**
- * @brief Get current MPR selector count
- */
-int get_mpr_selector_count(void) {
-    int count = 0;
-    for (int i = 0; i < neighbor_count; i++) {
-        if (neighbor_table[i].link_status == SYM_LINK &&
-            neighbor_table[i].is_mpr_selector) {
-            count++;
-        }
-    }
-    return count;
-}
+// get_mpr_selector_count() is now implemented in hello.c
 
 /**
  * @brief Get current ANSN value

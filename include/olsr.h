@@ -46,6 +46,7 @@
 #define ASYM_LINK     1  /**< Asymmetric link */
 #define SYM_LINK      2  /**< Symmetric link */
 #define LOST_LINK     3  /**< Lost link */
+#define MPR_NEIGH     4  /**< MPR neighbor link */
 /** @} */
 
 /**

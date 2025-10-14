@@ -8,6 +8,7 @@
 #include "../include/hello.h"
 #include "../include/routing.h"
 #include "../include/tc.h"
+#include "../include/mpr.h"
 
 /**
  * @brief Convert a node ID to a string representation
@@ -23,11 +24,6 @@ static char* id_to_string(uint32_t id, char* buffer) {
 
 /** @brief Global ANSN (Advertised Neighbor Sequence Number) counter */
 static uint16_t ansn_counter = 0;
-
-/** @brief Array to store MPR selector addresses */
-static uint32_t mpr_selectors[MAX_NEIGHBORS];
-/** @brief Current number of MPR selectors */
-static int mpr_selector_count = 0;
 
 /**
  * @brief Process a received TC message
@@ -77,87 +73,51 @@ void process_tc_message(struct olsr_message* msg, uint32_t sender_addr) {
     update_routing_table();
 }
 
-/**
- * @brief Add an MPR selector
- * @param selector_addr IP address of selector to add
- * @return 0 on success, -1 if already exists or list full
- */
-int add_mpr_selector(uint32_t selector_addr) {
-
-    for (int i = 0; i < mpr_selector_count; i++) {
-        if (mpr_selectors[i] == selector_addr) {
-            return -1;
-        }
-    }
-    
-    if (mpr_selector_count >= MAX_NEIGHBORS) {
-        printf("Error: MPR selector list full\n");
-        return -1;
-    }
-    
-    mpr_selectors[mpr_selector_count++] = selector_addr;
-    char addr_str[16];
-    printf("Added MPR selector: %s\n",
-           id_to_string(selector_addr, addr_str));
-    return 0;
-}
-
-/**
- * @brief Remove an MPR selector
- * @param selector_addr IP address of selector to remove
- * @return 0 on success, -1 if not found
- */
-int remove_mpr_selector(uint32_t selector_addr) {
-    for (int i = 0; i < mpr_selector_count; i++) {
-        if (mpr_selectors[i] == selector_addr) {
-
-            for (int j = i; j < mpr_selector_count - 1; j++) {
-                mpr_selectors[j] = mpr_selectors[j + 1];
-            }
-            mpr_selector_count--;
-            char addr_str[16];
-            printf("Removed MPR selector: %s\n",
-                   id_to_string(selector_addr, addr_str));
-            return 0;
-        }
-    }
-    return -1;
-}
+// MPR selector management is now handled through neighbor_table[].is_mpr_selector flags
 
 /**
  * @brief Generate a TC message
  * @return Newly allocated TC message, NULL on failure
  */
 struct olsr_tc* generate_tc_message(void) {
-    static struct olsr_tc tc_static;
-    struct olsr_tc* tc = &tc_static;
-    memset(&tc_static, 0, sizeof(struct olsr_tc));
-    if (!tc) {
-        printf("Error: Failed to allocate TC message\n");
-        return NULL;
-    }
+    static struct olsr_tc tc_msg;
+    static struct tc_neighbor mpr_selectors_static[MAX_NEIGHBORS];
     
-    tc->ansn = ++ansn_counter;
-    tc->selector_count = mpr_selector_count;
+    // Clear the message
+    memset(&tc_msg, 0, sizeof(struct olsr_tc));
+    memset(mpr_selectors_static, 0, sizeof(mpr_selectors_static));
     
-    if (mpr_selector_count > 0) {
-        static struct tc_neighbor mpr_selectors_static[MAX_NEIGHBORS];
-        tc->mpr_selectors = mpr_selectors_static;
-        // Copy MPR selectors
-        for (int i = 0; i < mpr_selector_count; i++) {
-            tc->mpr_selectors[i].neighbor_addr = mpr_selectors[i];
+    // Count neighbors who selected us as MPR
+    int selector_count = 0;
+    for (int i = 0; i < neighbor_count && selector_count < MAX_NEIGHBORS; i++) {
+        if (neighbor_table[i].link_status == SYM_LINK &&
+            neighbor_table[i].is_mpr_selector) {
+            mpr_selectors_static[selector_count].neighbor_addr = neighbor_table[i].neighbor_id;
+            selector_count++;
+            
+            char selector_str[16];
+            printf("  Including MPR selector: %s\n",
+                   id_to_string(neighbor_table[i].neighbor_id, selector_str));
         }
-    } else {
-        tc->mpr_selectors = NULL;
     }
     
-    return tc;
+    tc_msg.ansn = ++ansn_counter;
+    tc_msg.selector_count = selector_count;
+    tc_msg.mpr_selectors = (selector_count > 0) ? mpr_selectors_static : NULL;
+    
+    printf("Generated TC message: ANSN=%d, MPR selectors=%d\n", 
+           tc_msg.ansn, tc_msg.selector_count);
+    
+    return &tc_msg;
 }
 
 /**
  * @brief Send a TC message
  */
 void send_tc_message(void) {
+    // Count MPR selectors first
+    int mpr_selector_count = get_mpr_selector_count();
+    
     // Only send if we have MPR selectors
     if (mpr_selector_count == 0) {
         printf("No MPR selectors - skipping TC message\n");
@@ -185,16 +145,21 @@ void send_tc_message(void) {
     printf("TC message ready: ANSN=%d, size=%d, selectors=%d\n",
            tc->ansn, msg.msg_size, tc->selector_count);
     
-    // Cleanup
-    if (tc->mpr_selectors) free(tc->mpr_selectors);
-    free(tc);
+    // No cleanup needed for static allocations
 }
 
 /**
  * @brief Get current MPR selector count
  */
 int get_mpr_selector_count(void) {
-    return mpr_selector_count;
+    int count = 0;
+    for (int i = 0; i < neighbor_count; i++) {
+        if (neighbor_table[i].link_status == SYM_LINK &&
+            neighbor_table[i].is_mpr_selector) {
+            count++;
+        }
+    }
+    return count;
 }
 
 /**

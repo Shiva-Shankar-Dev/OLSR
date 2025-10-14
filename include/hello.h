@@ -116,4 +116,11 @@ struct neighbor_entry* find_neighbor(uint32_t addr);
  */
 void print_neighbor_table(void);
 
+/**
+ * @brief Update MPR selector status based on received HELLO
+ * @param hello_msg Received HELLO message
+ * @param sender_id Sender's node ID
+ */
+void update_mpr_selector_status(struct olsr_hello* hello_msg, uint32_t sender_id);
+
 #endif

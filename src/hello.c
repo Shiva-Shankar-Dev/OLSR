@@ -10,19 +10,13 @@
  */
 
 #include <stdio.h>
-/**
- * @brief Stub implementation for print_neighbor_table
- * Prints a placeholder message. Replace with actual neighbor table printing logic as needed.
- */
-void print_neighbor_table(void) {
-    printf("[print_neighbor_table] Neighbor table printing not yet implemented.\n");
-}
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
 #include "../include/hello.h"
 #include "../include/olsr.h"
 #include "../include/packet.h"
+#include "../include/mpr.h"
 
 /**
  * @brief Convert a node ID to a string representation
@@ -222,6 +216,64 @@ void process_hello_message(struct olsr_message* msg, uint32_t sender_addr) {
     } else {
         update_neighbor(sender_addr, ASYM_LINK, hello_msg->willingness);
     }
+    
+    // Update two-hop neighbor information from this HELLO message
+    update_two_hop_neighbors_from_hello(hello_msg, sender_addr);
+    
+    // Recalculate MPR set after topology changes
+    printf("Topology updated, recalculating MPR set...\n");
+    calculate_mpr_set();
+    
+    // Update MPR selector status
+    update_mpr_selector_status(hello_msg, sender_addr);
+}
+
+/**
+ * @brief Update MPR selector status based on received HELLO
+ * @param hello_msg Received HELLO message
+ * @param sender_id Sender's node ID
+ */
+void update_mpr_selector_status(struct olsr_hello* hello_msg, uint32_t sender_id) {
+    if (!hello_msg) {
+        return;
+    }
+    
+    // Find sender in neighbor table
+    int sender_idx = -1;
+    for (int i = 0; i < neighbor_count; i++) {
+        if (neighbor_table[i].neighbor_id == sender_id) {
+            sender_idx = i;
+            break;
+        }
+    }
+    if (sender_idx == -1) {
+        return; // Sender not in our neighbor table
+    }
+    
+    // Check if sender lists us as MPR neighbor
+    int selected_as_mpr = 0;
+    for (int i = 0; i < hello_msg->neighbor_count; i++) {
+        if (hello_msg->neighbors[i].neighbor_id == node_id &&
+            hello_msg->neighbors[i].link_code == MPR_NEIGH) {
+            selected_as_mpr = 1;
+            break;
+        }
+    }
+    
+    // Update MPR selector flag
+    int was_selector = neighbor_table[sender_idx].is_mpr_selector;
+    neighbor_table[sender_idx].is_mpr_selector = selected_as_mpr;
+    
+    // Log changes
+    if (selected_as_mpr && !was_selector) {
+        char sender_str[16];
+        printf("Neighbor %s selected us as MPR\n",
+               id_to_string(sender_id, sender_str));
+    } else if (!selected_as_mpr && was_selector) {
+        char sender_str[16];
+        printf("Neighbor %s no longer selects us as MPR\n",
+               id_to_string(sender_id, sender_str));
+    }
 }
 
 /**
@@ -316,4 +368,38 @@ int deserialize_hello(struct olsr_hello* hello, const uint8_t* buffer) {
         hello->neighbors = NULL;
     }
     return offset;
+}
+
+/**
+ * @brief Print the current neighbor table
+ * 
+ * Displays the contents of the neighbor table in a human-readable format,
+ * showing neighbor addresses, willingness values, and link status.
+ */
+void print_neighbor_table(void) {
+    printf("\n=== Neighbor Table ===\n");
+    printf("%-15s %-12s %-10s %-8s %-8s\n", "Neighbor ID", "Link Status", "Willingness", "Is MPR", "MPR Sel");
+    printf("---------------------------------------------------------------\n");
+    
+    for (int i = 0; i < neighbor_count; i++) {
+        char addr_str[16];
+        const char* link_status_str;
+        
+        switch (neighbor_table[i].link_status) {
+            case SYM_LINK: link_status_str = "SYM_LINK"; break;
+            case ASYM_LINK: link_status_str = "ASYM_LINK"; break;
+            case LOST_LINK: link_status_str = "LOST_LINK"; break;
+            case MPR_NEIGH: link_status_str = "MPR_NEIGH"; break;
+            default: link_status_str = "UNKNOWN"; break;
+        }
+        
+        printf("%-15s %-12s %-10d %-8s %-8s\n",
+               id_to_string(neighbor_table[i].neighbor_id, addr_str),
+               link_status_str,
+               neighbor_table[i].willingness,
+               neighbor_table[i].is_mpr ? "YES" : "NO",
+               neighbor_table[i].is_mpr_selector ? "YES" : "NO");
+    }
+    printf("Total neighbors: %d\n", neighbor_count);
+    printf("=======================\n\n");
 }

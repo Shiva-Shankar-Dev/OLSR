@@ -138,4 +138,23 @@ int get_occupied_slots(int* occupied_slots, int max_slots);
 void print_tdma_reservations(void);
 void cleanup_expired_reservations(int max_age);
 
+/**
+ * @brief Check neighbor table for expired HELLO timeouts
+ * @return Number of neighbors that failed timeout check
+ */
+int check_neighbor_timeouts(void);
+
+/**
+ * @brief Handle link failure for a specific neighbor
+ * @param neighbor_id ID of the failed neighbor
+ */
+void handle_link_failure(uint32_t neighbor_id);
+
+/**
+ * @brief Generate emergency HELLO message after topology change
+ * @param queue Pointer to the control queue
+ * @return 0 on success, -1 on failure
+ */
+int generate_emergency_hello(struct control_queue* queue);
+
 #endif

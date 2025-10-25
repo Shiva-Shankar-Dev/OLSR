@@ -56,6 +56,17 @@
  */
 #define HELLO_INTERVAL 2  /**< HELLO message interval in seconds */
 #define TC_INTERVAL    5  /**< TC message interval in seconds */
+#define HELLO_TIMEOUT  6  /**< HELLO timeout for link failure detection in seconds */
+/** @} */
+
+/**
+ * @defgroup RetryConstants Message Retry and Failure Recovery Constants
+ * @brief Constants for message retransmission and failure detection
+ * @{
+ */
+#define MAX_RETRY_ATTEMPTS 3    /**< Maximum number of retry attempts */
+#define RETRY_BASE_INTERVAL 2   /**< Base retry interval in seconds */
+#define MAX_RETRY_INTERVAL 16   /**< Maximum retry interval in seconds */
 /** @} */
 
 /**
@@ -80,6 +91,7 @@ struct neighbor_entry {
     uint32_t neighbor_id;      /**< IP address of the neighbor */
     uint8_t link_status;         /**< Link status (SYM_LINK, ASYM_LINK, etc.) */
     time_t last_seen;            /**< Timestamp of last received message */
+    time_t last_hello_time;      /**< Timestamp of last HELLO message received */
     uint8_t willingness;         /**< Neighbor's willingness to act as MPR */
     int is_mpr;                  /**< Flag: 1 if neighbor is selected as MPR */
     int is_mpr_selector;         /**< Flag: 1 if neighbor selected this node as MPR */
@@ -125,11 +137,14 @@ extern uint16_t message_seq_num;
 /**
  * @brief Control message structure
  * 
- * Represents a single message in the control queue with metadata.
+ * Represents a single message in the control queue with metadata and retry logic.
  */
 struct control_message {
     uint8_t msg_type;        /**< Type of message (MSG_HELLO, MSG_TC, etc.) */
     time_t timestamp;        /**< Timestamp when message was created */
+    time_t next_retry_time;  /**< Timestamp for next retry attempt */
+    int retry_count;         /**< Number of retry attempts made */
+    uint32_t destination_id; /**< Destination node ID (for tracking failed links) */
     uint8_t msg_data[512];   /**< Embedded message data buffer */
     size_t data_size;        /**< Actual size of data in buffer */
 };
@@ -168,5 +183,32 @@ int push_to_control_queue(struct control_queue* queue,uint8_t msg_type,const uin
  * @return Pointer to control message, or NULL if queue is empty
  */
 int pop_from_control_queue(struct control_queue* queue,struct control_message* out_msg);
+
+/**
+ * @brief Add a message to the control queue with retry capability
+ * @param queue Pointer to the control queue
+ * @param msg_type Type of the message
+ * @param msg_data Pointer to message data
+ * @param data_size Size of the message data
+ * @param destination_id Destination node ID for tracking
+ * @return 0 on success, -1 on failure
+ */
+int add_message_with_retry(struct control_queue* queue, uint8_t msg_type, 
+                          const uint8_t* msg_data, size_t data_size, uint32_t destination_id);
+
+/**
+ * @brief Process retry queue for message retransmissions
+ * @param queue Pointer to the control queue
+ * @return Number of messages processed
+ */
+int process_retry_queue(struct control_queue* queue);
+
+/**
+ * @brief Cleanup expired messages from retry queue
+ * @param queue Pointer to the control queue
+ * @return Number of messages cleaned up
+ */
+int cleanup_expired_messages(struct control_queue* queue);
+
 #endif
 

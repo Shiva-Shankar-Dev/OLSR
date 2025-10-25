@@ -28,6 +28,7 @@ void update_neighbor(uint32_t neighbor_id, int link_type, uint8_t willingness){
             neighbor_table[i].link_status = link_type;
             neighbor_table[i].willingness = willingness;
             neighbor_table[i].last_seen = time(NULL);
+            neighbor_table[i].last_hello_time = time(NULL);  // Initialize for timeout tracking
             char addr_str[16];
             printf("Updated neighbor: %s (link_type=%d, willingness=%d)\n",
                    id_to_string(neighbor_id, addr_str),
@@ -50,6 +51,7 @@ int add_neighbor(uint32_t neighbor_id, uint8_t link_code, uint8_t willingness){
     neighbor_table[neighbor_count].link_status = link_code;
     neighbor_table[neighbor_count].willingness = willingness;
     neighbor_table[neighbor_count].last_seen = time(NULL);
+    neighbor_table[neighbor_count].last_hello_time = time(NULL);  // Initialize for timeout tracking
     neighbor_table[neighbor_count].is_mpr = 0;
     neighbor_table[neighbor_count].is_mpr_selector = 0;
     neighbor_table[neighbor_count].next = NULL;

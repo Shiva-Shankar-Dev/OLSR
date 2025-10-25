@@ -125,6 +125,48 @@ int remove_two_hop_neighbor(uint32_t two_hop_addr, uint32_t one_hop_addr) {
 }
 
 /**
+ * @brief Remove all two-hop neighbors reachable via a specific one-hop neighbor
+ * 
+ * When a one-hop neighbor fails, all two-hop neighbors reachable only through
+ * that neighbor become unreachable and should be removed from the table.
+ * 
+ * @param one_hop_addr IP address of the failed one-hop neighbor
+ * @return Number of two-hop neighbors removed
+ */
+int remove_two_hop_via_neighbor(uint32_t one_hop_addr) {
+    int removed_count = 0;
+    int write_pos = 0;
+    
+    char one_hop_str[16];
+    printf("Removing all two-hop neighbors via failed neighbor %s\n", 
+           id_to_string(one_hop_addr, one_hop_str));
+    
+    // Compact the array by removing entries with matching one_hop_addr
+    for (int read_pos = 0; read_pos < two_hop_count; read_pos++) {
+        if (two_hop_table[read_pos].one_hop_addr == one_hop_addr) {
+            // Remove this entry
+            char two_hop_str[16];
+            printf("  Removed two-hop neighbor: %s\n",
+                   id_to_string(two_hop_table[read_pos].neighbor_id, two_hop_str));
+            removed_count++;
+        } else {
+            // Keep this entry
+            if (write_pos != read_pos) {
+                two_hop_table[write_pos] = two_hop_table[read_pos];
+            }
+            write_pos++;
+        }
+    }
+    
+    two_hop_count = write_pos;
+    
+    printf("Removed %d two-hop neighbors via failed neighbor %s\n", 
+           removed_count, one_hop_str);
+    
+    return removed_count;
+}
+
+/**
  * @brief Count how many two-hop neighbors are covered by a one-hop neighbor
  * 
  * @param one_hop_addr IP address of the one-hop neighbor

@@ -49,6 +49,14 @@ int add_two_hop_neighbor(uint32_t two_hop_addr, uint32_t one_hop_addr);
 int remove_two_hop_neighbor(uint32_t two_hop_addr, uint32_t one_hop_addr);
 
 /**
+ * @brief Remove all two-hop neighbors reachable via a specific one-hop neighbor
+ * 
+ * @param one_hop_addr IP address of the failed one-hop neighbor
+ * @return Number of two-hop neighbors removed
+ */
+int remove_two_hop_via_neighbor(uint32_t one_hop_addr);
+
+/**
  * @brief Calculate MPR set using OLSR MPR selection algorithm
  * 
  * This function implements the RFC 3626 MPR selection algorithm:

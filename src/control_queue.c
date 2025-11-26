@@ -12,14 +12,14 @@ void init_control_queue(struct control_queue* queue) {
 }
 
 int push_to_control_queue(struct control_queue* queue,uint8_t msg_type,const uint8_t* msg_data,size_t data_size) {
-    // Check if queue is full
+    // Check if queue is full   
     if (queue->count >= MAX_QUEUE_SIZE) {
         return -1;  // Error: queue full
     }
     
     // Check if data fits in buffer
     if (data_size > MAX_MESSAGE_SIZE) {
-        return -1;  // Error: message too large
+       return -1;  // Error: message too large
     }
     
     // Get the slot where we'll store this message

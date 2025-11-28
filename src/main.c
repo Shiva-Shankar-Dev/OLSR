@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <time.h>
 #include "../include/hello.h"
 #include "../include/tc.h"
 #include "../include/olsr.h"

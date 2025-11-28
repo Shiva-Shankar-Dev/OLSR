@@ -23,7 +23,7 @@ int push_to_control_queue(struct control_queue* queue,uint8_t msg_type,const uin
     }
     
     // Get the slot where we'll store this message
-    struct control_message* slot = &queue->messages[queue->rear];
+    struct control_message* slot = &queue->messages[queue->rear];//message here is a member of control_queue struct
     
     // Fill in the message (basic version without retry)
     slot->msg_type = msg_type;

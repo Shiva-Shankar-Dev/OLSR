@@ -150,41 +150,43 @@ struct olsr_hello* generate_hello_message(void) {
  *       The function demonstrates message creation and logging only.
  */
 void send_hello_message(struct control_queue* queue) {
+    if (!queue) {
+        printf("Error: Control queue is NULL\n");
+        return;
+    }
 
     struct olsr_hello* hello_msg = generate_hello_message();
     if (!hello_msg) {
         printf("Error: Failed to generate HELLO message\n");
         return;
     }
-    
-    // Create OLSR message header
-    struct olsr_message msg;
-    msg.msg_type = MSG_HELLO;      /**< Set message type to HELLO */
-    msg.vtime = 6;                 /**< Validity time (encoded) */
-    msg.originator = node_id;      /**< Set originator to this node's IP */
-    msg.ttl = 1;                   /**< TTL = 1 for HELLO (one-hop only) */
-    msg.hop_count = 0;             /**< Initial hop count */
-    msg.msg_seq_num = ++message_seq_num; /**< Increment and assign sequence number */
-    msg.body = hello_msg;          /**< Attach HELLO message body */
-    
-    // Calculate serialized message size for accurate reporting
-    uint8_t temp_buffer[1024];
-    int serialized_hello_size = serialize_hello(hello_msg, temp_buffer);
-    msg.msg_size = sizeof(struct olsr_message) + serialized_hello_size;
 
-    // Debugging output
-    printf("HELLO message sent (type=%d, size=%d bytes, seq=%d)\n", msg.msg_type, msg.msg_size, msg.msg_seq_num);
-    printf("Willingness: %d, Neighbors: %d\n", hello_msg->willingness, hello_msg->neighbor_count);
+    uint8_t serialized_buf[1024];
+    int serialized_size = serialize_hello(hello_msg, serialized_buf);
+    if (serialized_size <= 0) {
+        printf("Error: Failed to serialize HELLO message\n");
+        return;
+    }
 
-    if(!queue){
-    printf("Error: Control queue is NULL\n");
-      return;
-    }
-    if(push_hello_to_queue(queue)==0){
-    printf("HELLO Message successfully queued for MAC Layer\n");
-    }
-    else{
-    printf("ERROR: Failed to queue HELLO Message\n");
+    // Update header / seq for logging
+    struct olsr_message hdr;
+    hdr.msg_type = MSG_HELLO;
+    hdr.vtime = 6;
+    hdr.originator = node_id;
+    hdr.ttl = 1;
+    hdr.hop_count = 0;
+    hdr.msg_seq_num = ++message_seq_num;
+    hdr.body = hello_msg;
+    hdr.msg_size = sizeof(struct olsr_message) + serialized_size;
+
+    printf("HELLO message prepared (type=%d, size=%d, seq=%d)\n", hdr.msg_type, hdr.msg_size, hdr.msg_seq_num);
+    printf("Willingness: %d, Neighbors: %d, Slot=%d\n", hello_msg->willingness, hello_msg->neighbor_count, hello_msg->reserved_slot);
+
+    int result = push_hello_to_queue(queue, serialized_buf, serialized_size);
+    if (result == 0) {
+        printf("HELLO Message successfully queued for MAC Layer\n");
+    } else {
+        printf("ERROR: Failed to queue HELLO Message (code=%d)\n", result);
     }
 }
 
@@ -202,7 +204,7 @@ void send_hello_message(struct control_queue* queue) {
  */
 void process_hello_message(struct olsr_message* msg, uint32_t sender_addr) {
     if (msg->msg_type != MSG_HELLO) {
-    printf("Error: Not a HELLO message\n");
+        printf("Error: Not a HELLO message\n");
         return;
     }
     
@@ -239,8 +241,6 @@ void process_hello_message(struct olsr_message* msg, uint32_t sender_addr) {
             break;
         }
     }
-    
-    // Update link status based on bidirectional communication
     if (we_are_mentioned) {
         update_neighbor(sender_addr, SYM_LINK, hello_msg->willingness);
     } else {
@@ -254,21 +254,12 @@ void process_hello_message(struct olsr_message* msg, uint32_t sender_addr) {
             break;
         }
     }
-    
-    // Update two-hop neighbor information from this HELLO message
+    //Updation and recalculation of MPRs
     update_two_hop_neighbors_from_hello(hello_msg, sender_addr);
-    
-    // Recalculate MPR set after topology changes
     printf("Topology updated, recalculating MPR set...\n");
     calculate_mpr_set();
-    
-    // Update MPR selector status
     update_mpr_selector_status(hello_msg, sender_addr);
-    
-    // Clean up expired TDMA reservations periodically
     cleanup_expired_reservations(SLOT_RESERVATION_TIMEOUT);
-    
-    // Print current TDMA reservations for debugging
     print_tdma_reservations();
 }
 
@@ -282,7 +273,6 @@ void update_mpr_selector_status(struct olsr_hello* hello_msg, uint32_t sender_id
         return;
     }
     
-    // Find sender in neighbor table
     int sender_idx = -1;
     for (int i = 0; i < neighbor_count; i++) {
         if (neighbor_table[i].neighbor_id == sender_id) {
@@ -291,7 +281,7 @@ void update_mpr_selector_status(struct olsr_hello* hello_msg, uint32_t sender_id
         }
     }
     if (sender_idx == -1) {
-        return; // Sender not in our neighbor table
+        return;
     }
     
     // Check if sender lists us as MPR neighbor
@@ -347,37 +337,25 @@ int get_mpr_selector_count(void) {
  * 
  * @note The control queue takes ownership of the message data
  */
-int push_hello_to_queue(struct control_queue* queue) {
+int push_hello_to_queue(struct control_queue* queue, const uint8_t* serialized_buffer, int serialized_size) {
     if (!queue) {
-    printf("Error: Control queue is NULL\n");
+        printf("Error: Control queue is NULL\n");
         return -1;
     }
 
-    // Generate HELLO message
-    struct olsr_hello* hello_msg = generate_hello_message();
-    if (!hello_msg) {
-    printf("Error: Failed to generate HELLO message\n");
+    if (serialized_size <= 0 || !serialized_buffer) {
+        printf("Error: Invalid serialized HELLO buffer or size\n");
         return -1;
     }
 
-    // Serialize HELLO message to buffer
-    uint8_t serialized_buffer[1024];  // Buffer for serialized data
-    int serialized_size = serialize_hello(hello_msg, serialized_buffer);
-    
-    if (serialized_size <= 0) {
-        printf("Error: Failed to serialize HELLO message\n");
-        return -1;
+    int result = push_to_control_queue(queue, MSG_HELLO, serialized_buffer, (size_t)serialized_size);
+
+    if (result == 0) {
+        printf("HELLO message serialized and queued (size=%d bytes)\n", serialized_size);
+    } else {
+        printf("Error: Failed to push HELLO into control queue (size=%d)\n", serialized_size);
     }
 
-    // Push serialized data to control queue
-    int result = push_to_control_queue(queue, MSG_HELLO, serialized_buffer, serialized_size);
-    
-    if (hello_msg->reserved_slot == -1)
-        printf("HELLO message serialized and queued (willingness=%d, neighbors=%d, size=%d bytes)\n", 
-               hello_msg->willingness, hello_msg->neighbor_count, serialized_size);
-    else
-        printf("HELLO message serialized and queued (willingness=%d, slot reserved=%d, neighbors=%d, size=%d bytes)\n", 
-               hello_msg->willingness, hello_msg->reserved_slot, hello_msg->neighbor_count, serialized_size);
     return result;
 }
 
@@ -779,15 +757,24 @@ void handle_link_failure(uint32_t neighbor_id) {
  */
 int generate_emergency_hello(struct control_queue* queue) {
     printf("Generating EMERGENCY HELLO due to topology change\n");
-    
-    // Use existing HELLO generation and queuing functionality
-    int result = push_hello_to_queue(queue);
-    
+
+    if (!queue) {
+        printf("Error: Control queue is NULL\n");
+        return -1;
+    }
+
+    struct olsr_hello* hello_msg = generate_hello_message();
+    if (!hello_msg) return -1;
+
+    uint8_t serialized_buf[1024];
+    int serialized_size = serialize_hello(hello_msg, serialized_buf);
+    if (serialized_size <= 0) return -1;
+
+    int result = push_hello_to_queue(queue, serialized_buf, serialized_size);
     if (result == 0) {
         printf("Emergency HELLO successfully queued\n");
     } else {
         printf("ERROR: Failed to queue emergency HELLO\n");
     }
-    
     return result;
 }

@@ -70,7 +70,7 @@ void process_hello_message(struct olsr_message* msg, uint32_t sender_addr);
  * @param queue Pointer to the control queue
  * @return 0 on success, -1 on failure
  */
-int push_hello_to_queue(struct control_queue* queue);
+int push_hello_to_queue(struct control_queue* queue, const uint8_t* serialized_buffer, int serialized_size);
 
 /**
  * @brief Add a new neighbor to the neighbor table

@@ -173,4 +173,25 @@ void handle_link_failure(uint32_t neighbor_id);
  */
 int generate_emergency_hello(struct control_queue* queue);
 
+/**
+ * @brief Receive and process a message from the network
+ * 
+ * This function handles the complete receive path:
+ * 1. Takes serialized bytes (as received from MAC layer)
+ * 2. Deserializes to appropriate message structure
+ * 3. Creates olsr_message wrapper
+ * 4. Calls appropriate processing function (process_hello_message, etc.)
+ * 
+ * @param serialized_buffer Raw bytes received from network/MAC layer
+ * @param buffer_size Size of the received data
+ * @param sender_addr IP address of the sender
+ * @return 0 on success, -1 on error
+ * 
+ * @note This demonstrates the complete receive flow that would be called
+ *       by the MAC layer when a message arrives from the network
+ */
+int receive_and_process_message(const uint8_t* serialized_buffer, 
+                                size_t buffer_size, 
+                                uint32_t sender_addr);
+
 #endif

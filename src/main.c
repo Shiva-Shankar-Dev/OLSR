@@ -8,6 +8,60 @@
 #include "../include/olsr.h"
 #include "../include/routing.h"
 // Control queue functions are declared in olsr.h
+struct control_queue global_ctrl_queue;
+
+/**
+ * @brief Simulate receiving and processing a message from the network
+ * 
+ * This function demonstrates the complete receive path:
+ * 1. Receive serialized bytes (from MAC layer in real implementation)
+ * 2. Deserialize to structured format
+ * 3. Create olsr_message wrapper
+ * 4. Call appropriate processing function
+ * 
+ * @param serialized_buffer Raw bytes received from network
+ * @param buffer_size Size of received data
+ * @param sender_addr IP address of sender
+ * @return 0 on success, -1 on error
+ */
+int receive_and_process_message(const uint8_t* serialized_buffer, size_t buffer_size, uint32_t sender_addr) {
+    if (!serialized_buffer || buffer_size == 0) {
+        printf("Error: Invalid received buffer\n");
+        return -1;
+    }
+    
+    printf("\n=== RECEIVING MESSAGE from sender 0x%08X (size=%zu bytes) ===\n", sender_addr, buffer_size);
+    
+    // In a complete implementation, you would parse a header to determine message type
+    // For now, we'll check the serialized structure to identify the message type
+    
+    // Try to deserialize as HELLO (most common in OLSR)
+    struct olsr_hello hello_msg;
+    memset(&hello_msg, 0, sizeof(hello_msg));
+    
+    int bytes_read = deserialize_hello(&hello_msg, serialized_buffer);
+    if (bytes_read > 0) {
+        printf("Deserialized HELLO message: %d bytes\n", bytes_read);
+        
+        // Create OLSR message wrapper
+        struct olsr_message msg;
+        msg.msg_type = MSG_HELLO;
+        msg.vtime = 6;  // Standard HELLO validity
+        msg.originator = sender_addr;
+        msg.ttl = 1;
+        msg.hop_count = 0;
+        msg.body = &hello_msg;
+        
+        // Process the HELLO message
+        process_hello_message(&msg, sender_addr);
+        printf("=== HELLO MESSAGE PROCESSED ===\n\n");
+        return 0;
+    }
+    
+    // Could add TC message deserialization here
+    printf("Warning: Unable to deserialize message\n");
+    return -1;
+}
 
 void init_olsr(void){
     // Initialization code for OLSR daemon
@@ -57,11 +111,20 @@ void init_olsr(void){
         if (pop_from_control_queue(&ctrl_queue, &msg) == 0) {
             printf("Processing message of type %d with size %zu\n", msg.msg_type, msg.data_size);
             
-            // In a real implementation, this would send the message via MAC layer
-            // For now, we just log the message processing
+            // SEND PATH: In a real implementation, this would send via MAC layer
+            // The MAC layer would transmit msg.msg_data (serialized bytes) over the network
             
             if (msg.msg_type == MSG_HELLO) {
                 printf("HELLO message ready for transmission\n");
+                
+                // RECEIVE PATH SIMULATION (for testing):
+                // In reality, a neighboring node would receive this via their radio/MAC
+                // and call receive_and_process_message() with the received bytes
+                
+                // Example of what a neighbor would do upon receiving:
+                // receive_and_process_message(msg.msg_data, msg.data_size, node_id);
+            } else if (msg.msg_type == MSG_TC) {
+                printf("TC message ready for transmission\n");
             }
         }
         

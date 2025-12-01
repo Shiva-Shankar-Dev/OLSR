@@ -126,18 +126,6 @@ void clear_mpr_set(void);
 void clear_two_hop_table(void);
 
 /**
- * @brief Update two-hop neighbors based on received HELLO messages
- * 
- * This function should be called after processing HELLO messages to update
- * the two-hop neighbor information. It extracts two-hop neighbors from the
- * HELLO messages of one-hop neighbors.
- * 
- * @param hello_msg Pointer to the HELLO message
- * @param sender_addr IP address of the sender (one-hop neighbor)
- */
-void update_two_hop_neighbors_from_hello(struct olsr_hello* hello_msg, uint32_t sender_addr);
-
-/**
  * @brief Get the current two-hop neighbor count
  * 
  * @return Number of two-hop neighbors in the table

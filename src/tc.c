@@ -31,7 +31,15 @@ static uint16_t ansn_counter = 0;
  * Updates topology information from received TC message and
  * triggers routing table recalculation if needed.
  * 
+ * RECEIVE FLOW CONTEXT:
+ * This function is called after the following steps:
+ * 1. Raw bytes received from MAC layer
+ * 2. TC message deserialized (bytes → struct olsr_tc)
+ * 3. olsr_message wrapper created with body pointing to deserialized TC
+ * 4. THIS function called to process the structured data
+ * 
  * @param msg Pointer to received OLSR message containing TC
+ *            msg->body must point to a deserialized struct olsr_tc
  * @param sender_addr IP address of message sender
  */
 void process_tc_message(struct olsr_message* msg, uint32_t sender_addr) {
@@ -41,6 +49,8 @@ void process_tc_message(struct olsr_message* msg, uint32_t sender_addr) {
         return;
     }
     
+    // Extract the deserialized TC message from the wrapper
+    // This was already deserialized before calling this function
     struct olsr_tc* tc = (struct olsr_tc*)msg->body;
     if (!tc) {
         printf("Error: Empty TC message body\n");
@@ -124,6 +134,13 @@ struct olsr_tc* generate_tc_message(void) {
 
 /**
  * @brief Serialize a TC message to a buffer
+ * 
+ * SEND FLOW - Step 2: Serialize
+ * Converts a structured TC message into a byte stream for network transmission.
+ * This is called after generate_tc_message() and before queuing.
+ * 
+ * Flow: generate_tc_message() → [serialize_tc()] → push_to_queue() → transmit
+ * 
  * @param tc Pointer to TC message
  * @param buffer Buffer to write to
  * @return Number of bytes written, or -1 on error

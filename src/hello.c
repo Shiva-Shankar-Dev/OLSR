@@ -194,7 +194,17 @@ void send_hello_message(struct control_queue* queue) {
  * and determine link symmetry. The function checks if this node is
  * mentioned in the sender's neighbor list to establish bidirectional links.
  * 
+ * RECEIVE FLOW CONTEXT:
+ * This function is called after the following steps have been completed:
+ * 1. Raw bytes received from MAC layer
+ * 2. deserialize_hello() called to convert bytes → struct olsr_hello
+ * 3. olsr_message wrapper created with body pointing to deserialized hello
+ * 4. THIS function called to process the structured data
+ * 
+ * See receive_and_process_message() in main.c for the complete receive path.
+ * 
  * @param msg Pointer to the OLSR message containing the HELLO
+ *            msg->body must point to a deserialized struct olsr_hello
  * @param sender_addr IP address of the message sender
  * 
  * @note This function updates the neighbor table and establishes link symmetry
@@ -205,6 +215,8 @@ void process_hello_message(struct olsr_message* msg, uint32_t sender_addr) {
         return;
     }
     
+    // Extract the deserialized HELLO message from the wrapper
+    // This was already deserialized by deserialize_hello() before calling this function
     struct olsr_hello* hello_msg = (struct olsr_hello*)msg->body;
     
     char sender_str[16];
@@ -251,8 +263,45 @@ void process_hello_message(struct olsr_message* msg, uint32_t sender_addr) {
             break;
         }
     }
-    //Updation and recalculation of MPRs
-    update_two_hop_neighbors_from_hello(hello_msg, sender_addr);
+    
+    // Extract two-hop neighbor information from HELLO message
+    // Only process if sender is a symmetric neighbor
+    int sender_is_symmetric = 0;
+    for (int i = 0; i < neighbor_count; i++) {
+        if (neighbor_table[i].neighbor_id == sender_addr &&
+            neighbor_table[i].link_status == SYM_LINK) {
+            sender_is_symmetric = 1;
+            break;
+        }
+    }
+    
+    if (sender_is_symmetric) {
+        // Add all symmetric neighbors of the sender as our two-hop neighbors
+        for (int i = 0; i < hello_msg->neighbor_count; i++) {
+            uint32_t two_hop_addr = hello_msg->neighbors[i].neighbor_id;
+            
+            // Skip if the two-hop neighbor is actually us
+            if (two_hop_addr == node_id) {
+                continue;
+            }
+            
+            // Skip if the two-hop neighbor is already a one-hop neighbor
+            int is_one_hop = 0;
+            for (int j = 0; j < neighbor_count; j++) {
+                if (neighbor_table[j].neighbor_id == two_hop_addr) {
+                    is_one_hop = 1;
+                    break;
+                }
+            }
+            
+            // Only add if symmetric link and not already one-hop
+            if (!is_one_hop && hello_msg->neighbors[i].link_code == SYM_LINK) {
+                add_two_hop_neighbor(two_hop_addr, sender_addr);
+            }
+        }
+    }
+    
+    // Recalculate MPR set after topology update
     printf("Topology updated, recalculating MPR set...\n");
     calculate_mpr_set();
     update_mpr_selector_status(hello_msg, sender_addr);
@@ -358,6 +407,13 @@ int push_hello_to_queue(struct control_queue* queue, const uint8_t* serialized_b
 
 /**
  * @brief Serialize a HELLO message to a buffer
+ * 
+ * SEND FLOW - Step 2: Serialize
+ * Converts a structured HELLO message into a byte stream for network transmission.
+ * This is called after generate_hello_message() and before queuing.
+ * 
+ * Flow: generate_hello_message() → [serialize_hello()] → push_to_queue() → transmit
+ * 
  * @param hello Pointer to HELLO message
  * @param buffer Buffer to write to
  * @return Number of bytes written

@@ -474,60 +474,6 @@ void clear_two_hop_table(void) {
 }
 
 /**
- * @brief Update two-hop neighbors based on received HELLO messages
- * 
- * This function should be called after processing HELLO messages to update
- * the two-hop neighbor information. It extracts two-hop neighbors from the
- * HELLO messages of one-hop neighbors.
- * 
- * @param hello_msg Pointer to the HELLO message
- * @param sender_addr IP address of the sender (one-hop neighbor)
- */
-void update_two_hop_neighbors_from_hello(struct olsr_hello* hello_msg, uint32_t sender_addr) {
-    if (!hello_msg) {
-        printf("Error: NULL HELLO message\n");
-        return;
-    }
-    
-    // Check if sender is a symmetric neighbor
-    int is_symmetric = 0;
-    for (int i = 0; i < neighbor_count; i++) {
-        if (neighbor_table[i].neighbor_id == sender_addr &&
-            neighbor_table[i].link_status == SYM_LINK) {
-            is_symmetric = 1;
-            break;
-        }
-    }
-    
-    if (!is_symmetric) {
-        return; // Only process HELLO from symmetric neighbors
-    }
-    
-    // Add all symmetric neighbors of the sender as our two-hop neighbors
-    for (int i = 0; i < hello_msg->neighbor_count; i++) {
-        uint32_t two_hop_addr = hello_msg->neighbors[i].neighbor_id;
-        
-        // Skip if the two-hop neighbor is actually us
-        if (two_hop_addr == node_id) {
-            continue;
-        }
-        
-        // Skip if the two-hop neighbor is already a one-hop neighbor
-        int is_one_hop = 0;
-        for (int j = 0; j < neighbor_count; j++) {
-            if (neighbor_table[j].neighbor_id == two_hop_addr) {
-                is_one_hop = 1;
-                break;
-            }
-        }
-        
-        if (!is_one_hop && hello_msg->neighbors[i].link_code == SYM_LINK) {
-            add_two_hop_neighbor(two_hop_addr, sender_addr);
-        }
-    }
-}
-
-/**
  * @brief Get the current two-hop neighbor count
  * 
  * @return Number of two-hop neighbors in the table

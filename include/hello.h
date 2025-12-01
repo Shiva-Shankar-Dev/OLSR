@@ -117,6 +117,22 @@ struct neighbor_entry* find_neighbor(uint32_t addr);
 void print_neighbor_table(void);
 
 /**
+ * @brief Display all one-hop neighbors
+ * 
+ * Prints a formatted table of all one-hop neighbors with their details
+ * including link status, willingness, MPR status, and last seen time.
+ */
+void display_one_hop_neighbors(void);
+
+/**
+ * @brief Display all two-hop neighbors
+ * 
+ * Prints a formatted table of all two-hop neighbors showing which
+ * one-hop neighbor provides reachability to each two-hop neighbor.
+ */
+void display_two_hop_neighbors(void);
+
+/**
  * @brief Update MPR selector status based on received HELLO
  * @param hello_msg Received HELLO message
  * @param sender_id Sender's node ID

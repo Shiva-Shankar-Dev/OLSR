@@ -63,42 +63,38 @@ int get_my_reserved_slot(void) {
 /**
  * @brief Generate a HELLO message
  * 
- * Creates a new HELLO message structure containing the node's current
- * willingness value and neighbor information. The message is used for
- * neighbor discovery and link sensing in the OLSR protocol.
- * 
- * @return Pointer to newly allocated HELLO message, or NULL on failure
- * 
- * @note The caller is responsible for freeing the returned message
- * @note If neighbor_count > 0, neighbor information is not included
- *       in this simplified implementation
+ * Creates a HELLO message structure containing the node's current
+ * willingness value and neighbor information. NOTE: this implementation
+ * uses static storage for the returned message and for neighbor lists.
+ * The returned pointer points into static buffers which are overwritten
+ * on each call and must NOT be freed by the caller.
+ *
+ * @return Pointer to a statically allocated HELLO message (never NULL)
+ *
+ * @note The returned pointer and any neighbor lists have static lifetime
+ *       (valid until the next call to this function). This is intentional
+ *       to avoid dynamic allocation in this build. The implementation is
+ *       NOT thread-safe: concurrent calls will overwrite the same buffers.
  */
 struct olsr_hello* generate_hello_message(void) {
     static struct olsr_hello hello_msg_static;
     struct olsr_hello* hello_msg = &hello_msg_static;
     memset(hello_msg, 0, sizeof(struct olsr_hello));
-    if (!hello_msg) {
-    printf("Error: Failed to allocate memory for HELLO message\n");
-        return NULL;
-    }
     
     hello_msg->hello_interval = HELLO_INTERVAL;
     hello_msg->willingness = node_willingness;
     hello_msg->neighbor_count = neighbor_count;
     hello_msg->reserved_slot = my_reserved_slot; // TDMA slot reservation
 
-    // One-hop neighbors (existing code)
+    // One-hop neighbors (stored in a static array)
+    // neighbors_static lives in static storage and is reused on subsequent calls.
+    // Do NOT free or retain pointers across calls; they will be overwritten.
     if (neighbor_count > 0) {
         static struct hello_neighbor neighbors_static[MAX_NEIGHBORS];
         hello_msg->neighbors = neighbors_static;
         memset(hello_msg->neighbors, 0, neighbor_count * sizeof(struct hello_neighbor));
-        
-        // Allocate and fill neighbor information
-        if (!hello_msg->neighbors) {
-            printf("Error: Failed to allocate memory for neighbors list\n");
-            return NULL;
-        }
-        
+
+        /* neighbors_static is a static buffer and cannot be NULL; fill it directly. */
         for (int i = 0; i < neighbor_count; i++) {
             hello_msg->neighbors[i].neighbor_id = neighbor_table[i].neighbor_id;
             hello_msg->neighbors[i].link_code = neighbor_table[i].link_status;
@@ -112,6 +108,7 @@ struct olsr_hello* generate_hello_message(void) {
     hello_msg->two_hop_count = 0;
     
     if (two_hop_count > 0 && two_hop_count <= MAX_TWO_HOP_NEIGHBORS) {
+        /* two_hop_static is static storage reused across calls. See note above. */
         static struct two_hop_hello_neighbor two_hop_static[MAX_TWO_HOP_NEIGHBORS];
         hello_msg->two_hop_neighbors = two_hop_static;
         memset(hello_msg->two_hop_neighbors, 0, two_hop_count * sizeof(struct two_hop_hello_neighbor));
@@ -372,7 +369,8 @@ int serialize_hello(const struct olsr_hello* hello, uint8_t* buffer) {
     memcpy(buffer + offset, &hello->hello_interval, sizeof(uint16_t)); offset += sizeof(uint16_t);
     memcpy(buffer + offset, &hello->willingness, sizeof(uint8_t)); offset += sizeof(uint8_t);
     memcpy(buffer + offset, &hello->neighbor_count, sizeof(uint8_t)); offset += sizeof(uint8_t);
-    memcpy(buffer + offset, &hello->reserved_slot, sizeof(int)); offset += sizeof(int);
+    memcpy(buffer + offset, &hello->reserved_slot, sizeof(int32_t)); 
+offset += sizeof(int32_t);
     
     // Serialize one-hop neighbors
     for (int i = 0; i < hello->neighbor_count; i++) {
@@ -405,7 +403,7 @@ int deserialize_hello(struct olsr_hello* hello, const uint8_t* buffer) {
     memcpy(&hello->hello_interval, buffer + offset, sizeof(uint16_t)); offset += sizeof(uint16_t);
     memcpy(&hello->willingness, buffer + offset, sizeof(uint8_t)); offset += sizeof(uint8_t);
     memcpy(&hello->neighbor_count, buffer + offset, sizeof(uint8_t)); offset += sizeof(uint8_t);
-    memcpy(&hello->reserved_slot, buffer + offset, sizeof(int)); offset += sizeof(int);
+    memcpy(&hello->reserved_slot, buffer + offset, sizeof(int32_t)); offset += sizeof(int32_t);
     
     // Deserialize one-hop neighbors
     if (hello->neighbor_count > 0) {

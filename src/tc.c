@@ -77,7 +77,18 @@ void process_tc_message(struct olsr_message* msg, uint32_t sender_addr) {
 
 /**
  * @brief Generate a TC message
- * @return Newly allocated TC message, NULL on failure
+ * 
+ * Creates a TC message structure containing MPR selector information.
+ * NOTE: this implementation uses static storage for the returned message
+ * and for the MPR selector list. The returned pointer points into static
+ * buffers which are overwritten on each call and must NOT be freed by caller.
+ *
+ * @return Pointer to a statically allocated TC message (never NULL)
+ * 
+ * @note The returned pointer and MPR selector list have static lifetime
+ *       (valid until the next call to this function). This is intentional
+ *       to avoid dynamic allocation in this build. The implementation is
+ *       NOT thread-safe: concurrent calls will overwrite the same buffers.
  */
 struct olsr_tc* generate_tc_message(void) {
     static struct olsr_tc tc_msg;
@@ -112,9 +123,87 @@ struct olsr_tc* generate_tc_message(void) {
 }
 
 /**
- * @brief Send a TC message
+ * @brief Serialize a TC message to a buffer
+ * @param tc Pointer to TC message
+ * @param buffer Buffer to write to
+ * @return Number of bytes written, or -1 on error
  */
-void send_tc_message(void) {
+int serialize_tc(const struct olsr_tc* tc, uint8_t* buffer) {
+    if (!tc || !buffer) {
+        return -1;
+    }
+    
+    int offset = 0;
+    
+    // Serialize ANSN
+    memcpy(buffer + offset, &tc->ansn, sizeof(uint16_t)); 
+    offset += sizeof(uint16_t);
+    
+    // Serialize selector count
+    memcpy(buffer + offset, &tc->selector_count, sizeof(uint8_t)); 
+    offset += sizeof(uint8_t);
+    
+    // Serialize MPR selectors
+    for (int i = 0; i < tc->selector_count; i++) {
+        memcpy(buffer + offset, &tc->mpr_selectors[i], sizeof(struct tc_neighbor));
+        offset += sizeof(struct tc_neighbor);
+    }
+    
+    return offset;
+}
+
+/**
+ * @brief Push a TC message to the control queue
+ * 
+ * Serializes and adds a TC message to the specified control queue
+ * for later processing by the MAC layer.
+ * 
+ * @param queue Pointer to the control queue where the message will be stored
+ * @param serialized_buffer Serialized TC message data
+ * @param serialized_size Size of serialized data
+ * @return 0 on success, -1 on failure
+ * 
+ * @note The control queue takes ownership of the message data
+ */
+int push_tc_to_queue(struct control_queue* queue, const uint8_t* serialized_buffer, int serialized_size) {
+    if (!queue) {
+        printf("Error: Control queue is NULL\n");
+        return -1;
+    }
+
+    if (serialized_size <= 0 || !serialized_buffer) {
+        printf("Error: Invalid serialized TC buffer or size\n");
+        return -1;
+    }
+
+    int result = push_to_control_queue(queue, MSG_TC, serialized_buffer, (size_t)serialized_size);
+
+    if (result == 0) {
+        printf("TC message serialized and queued (size=%d bytes)\n", serialized_size);
+    } else {
+        printf("Error: Failed to push TC into control queue (size=%d)\n", serialized_size);
+    }
+
+    return result;
+}
+
+/**
+ * @brief Send a TC message
+ * 
+ * Generates a TC message, wraps it in an OLSR message header,
+ * and queues it for transmission. This function handles message creation,
+ * sequence number assignment, and logging.
+ * 
+ * @param queue Pointer to the control queue for MAC layer transmission
+ * 
+ * @note TC messages are only sent if there are MPR selectors to advertise
+ */
+void send_tc_message(struct control_queue* queue) {
+    if (!queue) {
+        printf("Error: Control queue is NULL\n");
+        return;
+    }
+    
     // Count MPR selectors first
     int mpr_selector_count = get_mpr_selector_count();
     
@@ -124,28 +213,39 @@ void send_tc_message(void) {
         return;
     }
     
-    struct olsr_tc* tc = generate_tc_message();
-    if (!tc) return;
-    
-    // Create message header
-    struct olsr_message msg;
-    msg.msg_type = MSG_TC;
-    msg.vtime = 15;           // Longer validity than HELLO
-    msg.originator = node_id;
-    msg.ttl = 255;           // Maximum TTL for TC
-    msg.hop_count = 0;
-    msg.msg_seq_num = ++message_seq_num;
-    msg.body = tc;
-    
-    msg.msg_size = sizeof(struct olsr_message) +
-                   sizeof(struct olsr_tc) +
-                   (tc->selector_count * sizeof(struct tc_neighbor));
-    
-    // TC message debug output
-    printf("TC message ready: ANSN=%d, size=%d, selectors=%d\n",
-           tc->ansn, msg.msg_size, tc->selector_count);
-    
-    // No cleanup needed for static allocations
+    struct olsr_tc* tc_msg = generate_tc_message();
+    if (!tc_msg) {
+        printf("Error: Failed to generate TC message\n");
+        return;
+    }
+
+    uint8_t serialized_buf[1024];
+    int serialized_size = serialize_tc(tc_msg, serialized_buf);
+    if (serialized_size <= 0) {
+        printf("Error: Failed to serialize TC message\n");
+        return;
+    }
+
+    // Update header / seq for logging
+    struct olsr_message hdr;
+    hdr.msg_type = MSG_TC;
+    hdr.vtime = 15;           // Longer validity than HELLO
+    hdr.originator = node_id;
+    hdr.ttl = 255;            // Maximum TTL for TC
+    hdr.hop_count = 0;
+    hdr.msg_seq_num = ++message_seq_num;
+    hdr.body = tc_msg;
+    hdr.msg_size = sizeof(struct olsr_message) + serialized_size;
+
+    printf("TC message prepared (type=%d, size=%d, seq=%d)\n", hdr.msg_type, hdr.msg_size, hdr.msg_seq_num);
+    printf("ANSN: %d, MPR Selectors: %d\n", tc_msg->ansn, tc_msg->selector_count);
+
+    int result = push_tc_to_queue(queue, serialized_buf, serialized_size);
+    if (result == 0) {
+        printf("TC Message successfully queued for MAC Layer\n");
+    } else {
+        printf("ERROR: Failed to queue TC Message (code=%d)\n", result);
+    }
 }
 
 // get_mpr_selector_count() is now implemented in hello.c

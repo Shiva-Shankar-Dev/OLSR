@@ -11,55 +11,56 @@
 struct control_queue global_ctrl_queue;
 
 /**
- * @brief Simulate receiving and processing a message from the network
+ * @brief Process a structured message received from RRC/TDMA layer
  * 
- * This function demonstrates the complete receive path:
- * 1. Receive serialized bytes (from MAC layer in real implementation)
- * 2. Deserialize to structured format
- * 3. Create olsr_message wrapper
- * 4. Call appropriate processing function
+ * This function processes already deserialized OLSR messages received from
+ * the RRC/TDMA layer. The RRC layer handles deserialization and passes
+ * structured messages directly to OLSR for processing.
  * 
- * @param serialized_buffer Raw bytes received from network
- * @param buffer_size Size of received data
+ * @param msg_type Type of the message (MSG_HELLO, MSG_TC, etc.)
+ * @param message_ptr Pointer to the deserialized message structure
  * @param sender_addr IP address of sender
  * @return 0 on success, -1 on error
  */
-int receive_and_process_message(const uint8_t* serialized_buffer, size_t buffer_size, uint32_t sender_addr) {
-    if (!serialized_buffer || buffer_size == 0) {
-        printf("Error: Invalid received buffer\n");
+int process_received_message(uint8_t msg_type, void* message_ptr, uint32_t sender_addr) {
+    if (!message_ptr) {
+        printf("Error: Invalid message pointer\n");
         return -1;
     }
     
-    printf("\n=== RECEIVING MESSAGE from sender 0x%08X (size=%zu bytes) ===\n", sender_addr, buffer_size);
+    printf("\n=== PROCESSING MESSAGE from sender 0x%08X (type=%d) ===\n", sender_addr, msg_type);
     
-    // In a complete implementation, you would parse a header to determine message type
-    // For now, we'll check the serialized structure to identify the message type
-    
-    // Try to deserialize as HELLO (most common in OLSR)
-    struct olsr_hello hello_msg;
-    memset(&hello_msg, 0, sizeof(hello_msg));
-    
-    int bytes_read = deserialize_hello(&hello_msg, serialized_buffer);
-    if (bytes_read > 0) {
-        printf("Deserialized HELLO message: %d bytes\n", bytes_read);
-        
-        // Create OLSR message wrapper
+    if (msg_type == MSG_HELLO) {
+        // Create OLSR message wrapper for HELLO
         struct olsr_message msg;
         msg.msg_type = MSG_HELLO;
         msg.vtime = 6;  // Standard HELLO validity
         msg.originator = sender_addr;
         msg.ttl = 1;
         msg.hop_count = 0;
-        msg.body = &hello_msg;
+        msg.body = message_ptr;  // Point to the deserialized HELLO structure
         
         // Process the HELLO message
         process_hello_message(&msg, sender_addr);
         printf("=== HELLO MESSAGE PROCESSED ===\n\n");
         return 0;
+    } else if (msg_type == MSG_TC) {
+        // Create OLSR message wrapper for TC
+        struct olsr_message msg;
+        msg.msg_type = MSG_TC;
+        msg.vtime = 15;  // TC validity time
+        msg.originator = sender_addr;
+        msg.ttl = 255;
+        msg.hop_count = 0;
+        msg.body = message_ptr;  // Point to the deserialized TC structure
+        
+        // Process the TC message
+        process_tc_message(&msg, sender_addr);
+        printf("=== TC MESSAGE PROCESSED ===\n\n");
+        return 0;
     }
     
-    // Could add TC message deserialization here
-    printf("Warning: Unable to deserialize message\n");
+    printf("Warning: Unknown message type %d\n", msg_type);
     return -1;
 }
 

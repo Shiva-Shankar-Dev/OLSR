@@ -40,13 +40,18 @@ uint8_t node_willingness = WILL_DEFAULT;
 uint32_t node_id = 0;
 
 /** @brief TDMA slot reservation table for neighbors */
+
+
 static struct {
     uint32_t node_id;
     int reserved_slot;
     time_t last_updated;
     int hop_distance;  // 1 for direct neighbors, 2 for two-hop
 } neighbor_slots[MAX_NEIGHBORS + MAX_TWO_HOP_NEIGHBORS];
+
 static int slot_table_size = 0;
+
+
 
 /** @brief This node's TDMA slot reservation */
 static int my_reserved_slot = -1;  // -1 means no reservation

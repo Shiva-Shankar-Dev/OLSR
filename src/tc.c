@@ -31,16 +31,7 @@ static uint16_t ansn_counter = 0;
  * Updates topology information from received TC message and
  * triggers routing table recalculation if needed.
  * 
- * RECEIVE FLOW CONTEXT:
- * This function is called after the following steps:
- * 1. Raw bytes received from MAC layer
- * 2. TC message deserialized (bytes → struct olsr_tc)
- * 3. olsr_message wrapper created with body pointing to deserialized TC
- * 4. THIS function called to process the structured data
  * 
- * @param msg Pointer to received OLSR message containing TC
- *            msg->body must point to a deserialized struct olsr_tc
- * @param sender_addr IP address of message sender
  */
 void process_tc_message(struct olsr_message* msg, uint32_t sender_addr) {
     (void)sender_addr; // Suppress unused parameter warning
@@ -133,43 +124,6 @@ struct olsr_tc* generate_tc_message(void) {
 }
 
 /**
- * @brief Serialize a TC message to a buffer
- * 
- * SEND FLOW - Step 2: Serialize
- * Converts a structured TC message into a byte stream for network transmission.
- * This is called after generate_tc_message() and before queuing.
- * 
- * Flow: generate_tc_message() → [serialize_tc()] → push_to_queue() → transmit
- * 
- * @param tc Pointer to TC message
- * @param buffer Buffer to write to
- * @return Number of bytes written, or -1 on error
- */
-int serialize_tc(const struct olsr_tc* tc, uint8_t* buffer) {
-    if (!tc || !buffer) {
-        return -1;
-    }
-    
-    int offset = 0;
-    
-    // Serialize ANSN
-    memcpy(buffer + offset, &tc->ansn, sizeof(uint16_t)); 
-    offset += sizeof(uint16_t);
-    
-    // Serialize selector count
-    memcpy(buffer + offset, &tc->selector_count, sizeof(uint8_t)); 
-    offset += sizeof(uint8_t);
-    
-    // Serialize MPR selectors
-    for (int i = 0; i < tc->selector_count; i++) {
-        memcpy(buffer + offset, &tc->mpr_selectors[i], sizeof(struct tc_neighbor));
-        offset += sizeof(struct tc_neighbor);
-    }
-    
-    return offset;
-}
-
-/**
  * @brief Send a TC message
  * 
  * Generates a TC message, wraps it in an OLSR message header,
@@ -211,9 +165,7 @@ void send_tc_message(struct control_queue* queue) {
         printf("TC Message successfully queued for RRC/TDMA Layer\n");
     } else {
         printf("ERROR: Failed to queue TC Message (code=%d)\n", result);
-        // Free the message if queueing failed
-        free(tc_msg->mpr_selectors);
-        free(tc_msg);
+        // Note: tc_msg uses static storage, so no need to free memory
     }
 }
 

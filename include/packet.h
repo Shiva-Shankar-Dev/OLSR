@@ -110,40 +110,4 @@ struct olsr_hello* generate_hello_message(void);
  */
 struct olsr_tc* generate_tc_message(void);
 
-/**
- * @brief Serialize a HELLO message to a buffer
- * @param hello Pointer to HELLO message to serialize
- * @param buffer Buffer to write serialized data to
- * @return Number of bytes written, or -1 on error
- * @note Used by RRC/TDMA layer for transmission
- */
-int serialize_hello(const struct olsr_hello* hello, uint8_t* buffer);
-
-/**
- * @brief Deserialize a HELLO message from a buffer
- * @param hello Pointer to HELLO message structure to fill
- * @param buffer Buffer containing serialized data
- * @return Number of bytes read, or -1 on error
- * @note Used for receiving messages from network
- */
-int deserialize_hello(struct olsr_hello* hello, const uint8_t* buffer);
-
-/**
- * @brief Serialize a TC message to a buffer
- * @param tc Pointer to TC message to serialize
- * @param buffer Buffer to write serialized data to
- * @return Number of bytes written, or -1 on error
- * @note Used by RRC/TDMA layer for transmission
- */
-int serialize_tc(const struct olsr_tc* tc, uint8_t* buffer);
-
-/**
- * @brief Deserialize a TC message from a buffer
- * @param tc Pointer to TC message structure to fill
- * @param buffer Buffer containing serialized data
- * @return Number of bytes read, or -1 on error
- * @note Used for receiving messages from network
- */
-int deserialize_tc(struct olsr_tc* tc, const uint8_t* buffer);
-
 #endif

@@ -163,24 +163,18 @@ void handle_link_failure(uint32_t neighbor_id);
 int generate_emergency_hello(struct control_queue* queue);
 
 /**
- * @brief Receive and process a message from the network
+ * @brief Process a structured message received from RRC/TDMA layer
  * 
- * This function handles the complete receive path:
- * 1. Takes serialized bytes (as received from MAC layer)
- * 2. Deserializes to appropriate message structure
- * 3. Creates olsr_message wrapper
- * 4. Calls appropriate processing function (process_hello_message, etc.)
+ * This function handles already deserialized OLSR messages from the RRC/TDMA layer.
+ * RRC handles deserialization and passes structured messages to OLSR for processing.
  * 
- * @param serialized_buffer Raw bytes received from network/MAC layer
- * @param buffer_size Size of the received data
+ * @param msg_type Type of the message (MSG_HELLO, MSG_TC, etc.)
+ * @param message_ptr Pointer to the deserialized message structure
  * @param sender_addr IP address of the sender
  * @return 0 on success, -1 on error
  * 
- * @note This demonstrates the complete receive flow that would be called
- *       by the MAC layer when a message arrives from the network
+ * @note This replaces the old serialized buffer receive path
  */
-int receive_and_process_message(const uint8_t* serialized_buffer, 
-                                size_t buffer_size, 
-                                uint32_t sender_addr);
+int process_received_message(uint8_t msg_type, void* message_ptr, uint32_t sender_addr);
 
 #endif

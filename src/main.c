@@ -64,8 +64,7 @@ int receive_and_process_message(const uint8_t* serialized_buffer, size_t buffer_
 }
 
 void init_olsr(void){
-    // Initialization code for OLSR daemon
-    // Set up sockets, timers, data structures, etc.
+    // Initialization code for OLSR protocol
     struct control_queue ctrl_queue;
     init_control_queue(&ctrl_queue);
     printf("OLSR Initialized with Link Failure Detection\n");
@@ -100,7 +99,7 @@ void init_olsr(void){
         if (retries_processed > 0) {
             printf("Processed %d message retries\n", retries_processed);
         }
-        
+
         // Send regular HELLO messages at specified interval
         if (now - last_hello_time >= HELLO_INTERVAL) {
             send_hello_message(&ctrl_queue);
@@ -116,13 +115,6 @@ void init_olsr(void){
             
             if (msg.msg_type == MSG_HELLO) {
                 printf("HELLO message ready for transmission\n");
-                
-                // RECEIVE PATH SIMULATION (for testing):
-                // In reality, a neighboring node would receive this via their radio/MAC
-                // and call receive_and_process_message() with the received bytes
-                
-                // Example of what a neighbor would do upon receiving:
-                // receive_and_process_message(msg.msg_data, msg.data_size, node_id);
             } else if (msg.msg_type == MSG_TC) {
                 printf("TC message ready for transmission\n");
             }

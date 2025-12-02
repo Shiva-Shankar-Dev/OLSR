@@ -170,48 +170,13 @@ int serialize_tc(const struct olsr_tc* tc, uint8_t* buffer) {
 }
 
 /**
- * @brief Push a TC message to the control queue
- * 
- * Serializes and adds a TC message to the specified control queue
- * for later processing by the MAC layer.
- * 
- * @param queue Pointer to the control queue where the message will be stored
- * @param serialized_buffer Serialized TC message data
- * @param serialized_size Size of serialized data
- * @return 0 on success, -1 on failure
- * 
- * @note The control queue takes ownership of the message data
- */
-int push_tc_to_queue(struct control_queue* queue, const uint8_t* serialized_buffer, int serialized_size) {
-    if (!queue) {
-        printf("Error: Control queue is NULL\n");
-        return -1;
-    }
-
-    if (serialized_size <= 0 || !serialized_buffer) {
-        printf("Error: Invalid serialized TC buffer or size\n");
-        return -1;
-    }
-
-    int result = push_to_control_queue(queue, MSG_TC, serialized_buffer, (size_t)serialized_size);
-
-    if (result == 0) {
-        printf("TC message serialized and queued (size=%d bytes)\n", serialized_size);
-    } else {
-        printf("Error: Failed to push TC into control queue (size=%d)\n", serialized_size);
-    }
-
-    return result;
-}
-
-/**
  * @brief Send a TC message
  * 
  * Generates a TC message, wraps it in an OLSR message header,
  * and queues it for transmission. This function handles message creation,
  * sequence number assignment, and logging.
  * 
- * @param queue Pointer to the control queue for MAC layer transmission
+ * @param queue Pointer to the control queue for RRC/TDMA layer transmission
  * 
  * @note TC messages are only sent if there are MPR selectors to advertise
  */
@@ -236,32 +201,19 @@ void send_tc_message(struct control_queue* queue) {
         return;
     }
 
-    uint8_t serialized_buf[1024];
-    int serialized_size = serialize_tc(tc_msg, serialized_buf);
-    if (serialized_size <= 0) {
-        printf("Error: Failed to serialize TC message\n");
-        return;
-    }
-
-    // Update header / seq for logging
-    struct olsr_message hdr;
-    hdr.msg_type = MSG_TC;
-    hdr.vtime = 15;           // Longer validity than HELLO
-    hdr.originator = node_id;
-    hdr.ttl = 255;            // Maximum TTL for TC
-    hdr.hop_count = 0;
-    hdr.msg_seq_num = ++message_seq_num;
-    hdr.body = tc_msg;
-    hdr.msg_size = sizeof(struct olsr_message) + serialized_size;
-
-    printf("TC message prepared (type=%d, size=%d, seq=%d)\n", hdr.msg_type, hdr.msg_size, hdr.msg_seq_num);
+    printf("TC message prepared (seq=%d)\n", ++message_seq_num);
     printf("ANSN: %d, MPR Selectors: %d\n", tc_msg->ansn, tc_msg->selector_count);
 
-    int result = push_tc_to_queue(queue, serialized_buf, serialized_size);
+    // Push pointer to the TC structure directly to the queue
+    // RRC/TDMA layer will handle serialization
+    int result = push_to_control_queue(queue, MSG_TC, (void*)tc_msg);
     if (result == 0) {
-        printf("TC Message successfully queued for MAC Layer\n");
+        printf("TC Message successfully queued for RRC/TDMA Layer\n");
     } else {
         printf("ERROR: Failed to queue TC Message (code=%d)\n", result);
+        // Free the message if queueing failed
+        free(tc_msg->mpr_selectors);
+        free(tc_msg);
     }
 }
 

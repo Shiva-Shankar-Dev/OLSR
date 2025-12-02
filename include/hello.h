@@ -62,17 +62,6 @@ int get_my_reserved_slot(void);
 void process_hello_message(struct olsr_message* msg, uint32_t sender_addr);
 
 /**
- * @brief Push a HELLO message to the control queue
- * 
- * Creates a HELLO message and adds it to the control queue for
- * later processing or transmission.
- * 
- * @param queue Pointer to the control queue
- * @return 0 on success, -1 on failure
- */
-int push_hello_to_queue(struct control_queue* queue, const uint8_t* serialized_buffer, int serialized_size);
-
-/**
  * @brief Add a new neighbor to the neighbor table
  * 
  * Adds a new neighbor entry to the neighbor table with specified

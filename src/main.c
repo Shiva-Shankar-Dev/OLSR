@@ -108,15 +108,31 @@ void init_olsr(void){
         
         // Process outgoing messages from control queue
         if (pop_from_control_queue(&ctrl_queue, &msg) == 0) {
-            printf("Processing message of type %d with size %zu\n", msg.msg_type, msg.data_size);
-            
-            // SEND PATH: In a real implementation, this would send via MAC layer
-            // The MAC layer would transmit msg.msg_data (serialized bytes) over the network
+            printf("Processing message of type %d\n", msg.msg_type);
             
             if (msg.msg_type == MSG_HELLO) {
-                printf("HELLO message ready for transmission\n");
+                printf("HELLO message ready for RRC/TDMA transmission\n");
+                // RRC/TDMA layer can access the structure via msg.message_ptr
+                struct olsr_hello* hello = (struct olsr_hello*)msg.message_ptr;
+                printf("  - Willingness: %d, Neighbors: %d, Slot: %d\n",
+                       hello->willingness, hello->neighbor_count, hello->reserved_slot);
+                
+                // After RRC/TDMA processes it, free the message
+                free(hello->neighbors);
+                if (hello->two_hop_neighbors) {
+                    free(hello->two_hop_neighbors);
+                }
+                free(hello);
             } else if (msg.msg_type == MSG_TC) {
-                printf("TC message ready for transmission\n");
+                printf("TC message ready for RRC/TDMA transmission\n");
+                // RRC/TDMA layer can access the structure via msg.message_ptr
+                struct olsr_tc* tc = (struct olsr_tc*)msg.message_ptr;
+                printf("  - ANSN: %d, Selectors: %d\n",
+                       tc->ansn, tc->selector_count);
+                
+                // After RRC/TDMA processes it, free the message
+                free(tc->mpr_selectors);
+                free(tc);
             }
         }
         

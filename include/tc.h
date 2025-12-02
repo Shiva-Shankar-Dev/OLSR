@@ -42,15 +42,6 @@ void send_tc_message(struct control_queue* queue);
 void process_tc_message(struct olsr_message* msg, uint32_t sender_addr);
 
 /**
- * @brief Push a TC message to the control queue
- * @param queue Pointer to the control queue where the message will be stored
- * @param serialized_buffer Serialized TC message data
- * @param serialized_size Size of serialized data
- * @return 0 on success, -1 on failure
- */
-int push_tc_to_queue(struct control_queue* queue, const uint8_t* serialized_buffer, int serialized_size);
-
-/**
  * @brief Get current MPR selector count
  * @return Number of current MPR selectors
  */

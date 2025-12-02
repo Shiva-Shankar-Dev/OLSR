@@ -1,43 +1,51 @@
 #include <string.h>
 #include <time.h>
+#include <stdlib.h>
 #include "../include/packet.h"
 #include "../include/olsr.h"
 #include <stdio.h>
 #include <stdint.h>
 
 void init_control_queue(struct control_queue* queue) {
-    queue->front = 0;
-    queue->rear = 0;
+    queue->head = NULL;
+    queue->tail = NULL;
     queue->count = 0;
 }
 
-int push_to_control_queue(struct control_queue* queue,uint8_t msg_type,const uint8_t* msg_data,size_t data_size) {
-    // Check if queue is full   
-    if (queue->count >= MAX_QUEUE_SIZE) {
-        return -1;  // Error: queue full
+int push_to_control_queue(struct control_queue* queue, uint8_t msg_type, void* message_ptr) {
+    // Check if message pointer is valid
+    if (!message_ptr) {
+        printf("Error: NULL message pointer\n");
+        return -1;
     }
     
-    // Check if data fits in buffer
-    if (data_size > MAX_MESSAGE_SIZE) {
-       return -1;  // Error: message too large
+    // Allocate new node for linked list
+    struct control_message* new_node = (struct control_message*)malloc(sizeof(struct control_message));
+    if (!new_node) {
+        printf("Error: Failed to allocate memory for control message\n");
+        return -1;
     }
-    
-    // Get the slot where we'll store this message
-    struct control_message* slot = &queue->messages[queue->rear];//message here is a member of control_queue struct
     
     // Fill in the message (basic version without retry)
-    slot->msg_type = msg_type;
-    slot->timestamp = time(NULL);
-    slot->next_retry_time = 0;  // No retry for basic push
-    slot->retry_count = 0;
-    slot->destination_id = 0;   // No specific destination
-    slot->data_size = data_size;
+    new_node->msg_type = msg_type;
+    new_node->timestamp = time(NULL);
+    new_node->next_retry_time = 0;  // No retry for basic push
+    new_node->retry_count = 0;
+    new_node->destination_id = 0;   // No specific destination
+    new_node->message_ptr = message_ptr;  // Store pointer to message structure
+    new_node->next = NULL;
     
-    // COPY the data into our buffer
-    memcpy(slot->msg_data, msg_data, data_size);
+    // Add to linked list (append at tail)
+    if (queue->tail == NULL) {
+        // Queue is empty
+        queue->head = new_node;
+        queue->tail = new_node;
+    } else {
+        // Queue has elements, append at tail
+        queue->tail->next = new_node;
+        queue->tail = new_node;
+    }
     
-    // Update queue pointers
-    queue->rear = (queue->rear + 1) % MAX_QUEUE_SIZE;  // Circular
     queue->count++;
     
     return 0;  // Success
@@ -46,17 +54,28 @@ int push_to_control_queue(struct control_queue* queue,uint8_t msg_type,const uin
 int pop_from_control_queue(struct control_queue* queue,
                            struct control_message* out_msg) {
     // Check if queue is empty
-    if (queue->count == 0) {
+    if (queue->count == 0 || queue->head == NULL) {
         return -1;  // Error: queue empty
     }
     
-    // COPY the entire message to caller's buffer
-    memcpy(out_msg, &queue->messages[queue->front], 
-           sizeof(struct control_message));
+    // Get the first message node
+    struct control_message* node = queue->head;
     
-    // Update queue pointers
-    queue->front = (queue->front + 1) % MAX_QUEUE_SIZE;  // Circular
+    // COPY the message content to caller's buffer
+    memcpy(out_msg, node, sizeof(struct control_message));
+    
+    // Update head pointer
+    queue->head = node->next;
+    
+    // If queue is now empty, update tail
+    if (queue->head == NULL) {
+        queue->tail = NULL;
+    }
+    
     queue->count--;
+    
+    // Free the node (but NOT the message_ptr - caller owns it)
+    free(node);
     
     return 0;  // Success
 }
@@ -69,45 +88,49 @@ int pop_from_control_queue(struct control_queue* queue,
  * 
  * @param queue Pointer to the control queue
  * @param msg_type Type of the message
- * @param msg_data Pointer to message data
- * @param data_size Size of the message data
+ * @param message_ptr Pointer to the message structure
  * @param destination_id Destination node ID for tracking
  * @return 0 on success, -1 on failure
  */
 int add_message_with_retry(struct control_queue* queue, uint8_t msg_type, 
-                          const uint8_t* msg_data, size_t data_size, uint32_t destination_id) {
-    // Check if queue is full
-    if (queue->count >= MAX_QUEUE_SIZE) {
-        printf("Error: Control queue is full, cannot add message with retry\n");
-        return -1;  // Error: queue full
+                          void* message_ptr, uint32_t destination_id) {
+    // Check if message pointer is valid
+    if (!message_ptr) {
+        printf("Error: NULL message pointer\n");
+        return -1;
     }
     
-    // Check if data fits in buffer
-    if (data_size > MAX_MESSAGE_SIZE) {
-        printf("Error: Message too large for retry queue\n");
-        return -1;  // Error: message too large
+    // Allocate new node for linked list
+    struct control_message* new_node = (struct control_message*)malloc(sizeof(struct control_message));
+    if (!new_node) {
+        printf("Error: Failed to allocate memory for control message with retry\n");
+        return -1;
     }
-    
-    // Get the slot where we'll store this message
-    struct control_message* slot = &queue->messages[queue->rear];
     
     // Fill in the message with retry information
-    slot->msg_type = msg_type;
-    slot->timestamp = time(NULL);
-    slot->next_retry_time = slot->timestamp + RETRY_BASE_INTERVAL;  // First retry in 2 seconds
-    slot->retry_count = 0;
-    slot->destination_id = destination_id;
-    slot->data_size = data_size;
+    new_node->msg_type = msg_type;
+    new_node->timestamp = time(NULL);
+    new_node->next_retry_time = new_node->timestamp + RETRY_BASE_INTERVAL;  // First retry in 2 seconds
+    new_node->retry_count = 0;
+    new_node->destination_id = destination_id;
+    new_node->message_ptr = message_ptr;  // Store pointer to message structure
+    new_node->next = NULL;
     
-    // COPY the data into our buffer
-    memcpy(slot->msg_data, msg_data, data_size);
+    // Add to linked list (append at tail)
+    if (queue->tail == NULL) {
+        // Queue is empty
+        queue->head = new_node;
+        queue->tail = new_node;
+    } else {
+        // Queue has elements, append at tail
+        queue->tail->next = new_node;
+        queue->tail = new_node;
+    }
     
-    // Update queue pointers
-    queue->rear = (queue->rear + 1) % MAX_QUEUE_SIZE;  // Circular
     queue->count++;
     
     printf("Message queued with retry capability (dest=%u, retry_time=%ld)\n", 
-           destination_id, (long)slot->next_retry_time);
+           destination_id, (long)new_node->next_retry_time);
     
     return 0;  // Success
 }
@@ -123,49 +146,67 @@ int add_message_with_retry(struct control_queue* queue, uint8_t msg_type,
  * @return Number of messages processed for retry
  */
 int process_retry_queue(struct control_queue* queue) {
-    if (!queue || queue->count == 0) {
+    if (!queue || queue->count == 0 || queue->head == NULL) {
         return 0;  // Nothing to process
     }
     
     time_t now = time(NULL);
     int processed_count = 0;
-    int write_pos = queue->front;
-    int messages_to_check = queue->count;
     
-    // Process messages in circular queue
-    for (int i = 0; i < messages_to_check; i++) {
-        int current_pos = (queue->front + i) % MAX_QUEUE_SIZE;
-        struct control_message* msg = &queue->messages[current_pos];
+    struct control_message* current = queue->head;
+    struct control_message* prev = NULL;
+    
+    // Iterate through linked list
+    while (current != NULL) {
+        struct control_message* next = current->next;  // Save next pointer
         
         // Check if this message is due for retry
-        if (msg->retry_count > 0 && now >= msg->next_retry_time) {
+        if (current->retry_count > 0 && now >= current->next_retry_time) {
             
-            if (msg->retry_count >= MAX_RETRY_ATTEMPTS) {
+            if (current->retry_count >= MAX_RETRY_ATTEMPTS) {
                 // Message has exceeded maximum retry attempts, remove it
                 printf("Message to dest %u exceeded max retries (%d), removing from queue\n",
-                       msg->destination_id, MAX_RETRY_ATTEMPTS);
-                // Don't copy this message (effectively removing it)
+                       current->destination_id, MAX_RETRY_ATTEMPTS);
+                
+                // Remove node from list
+                if (prev == NULL) {
+                    // Removing head
+                    queue->head = next;
+                } else {
+                    prev->next = next;
+                }
+                
+                // Update tail if needed
+                if (current == queue->tail) {
+                    queue->tail = prev;
+                }
+                
                 queue->count--;
+                
+                // Free the message structure (caller is responsible for managing message_ptr)
+                free(current);
+                
+                current = next;
                 continue;
             }
             
             // Calculate next retry time with exponential backoff
-            int retry_interval = RETRY_BASE_INTERVAL << msg->retry_count;  // 2^retry_count
+            int retry_interval = RETRY_BASE_INTERVAL << current->retry_count;  // 2^retry_count
             if (retry_interval > MAX_RETRY_INTERVAL) {
                 retry_interval = MAX_RETRY_INTERVAL;
             }
             
-            msg->retry_count++;
-            msg->next_retry_time = now + retry_interval;
+            current->retry_count++;
+            current->next_retry_time = now + retry_interval;
             
             printf("Retrying message to dest %u (attempt %d/%d, next retry in %d sec)\n",
-                   msg->destination_id, msg->retry_count, MAX_RETRY_ATTEMPTS, retry_interval);
+                   current->destination_id, current->retry_count, MAX_RETRY_ATTEMPTS, retry_interval);
             
-            // Message will be retransmitted by MAC layer when popped
             processed_count++;
         }
         
-        // Keep the message in queue for now (retry logic manages removal)
+        prev = current;
+        current = next;
     }
     
     return processed_count;
@@ -181,55 +222,61 @@ int process_retry_queue(struct control_queue* queue) {
  * @return Number of messages cleaned up
  */
 int cleanup_expired_messages(struct control_queue* queue) {
-    if (!queue || queue->count == 0) {
+    if (!queue || queue->count == 0 || queue->head == NULL) {
         return 0;  // Nothing to cleanup
     }
     
     time_t now = time(NULL);
     int cleaned_count = 0;
-    int write_pos = 0;
     
-    // Create temporary array to hold valid messages
-    struct control_message temp_messages[MAX_QUEUE_SIZE];
-    int temp_count = 0;
+    struct control_message* current = queue->head;
+    struct control_message* prev = NULL;
     
-    // Check all messages in queue
-    for (int i = 0; i < queue->count; i++) {
-        int current_pos = (queue->front + i) % MAX_QUEUE_SIZE;
-        struct control_message* msg = &queue->messages[current_pos];
+    // Iterate through linked list
+    while (current != NULL) {
+        struct control_message* next = current->next;  // Save next pointer
         
-        // Check if message should be kept
-        time_t age = now - msg->timestamp;
-        int should_keep = 1;
+        // Check if message should be removed
+        time_t age = now - current->timestamp;
+        int should_remove = 0;
         
         // Remove if too old (older than 60 seconds)
         if (age > 60) {
             printf("Removing expired message (age %ld sec)\n", (long)age);
-            should_keep = 0;
-            cleaned_count++;
+            should_remove = 1;
         }
         
         // Remove if exceeded retry attempts
-        if (msg->retry_count > MAX_RETRY_ATTEMPTS) {
+        if (current->retry_count > MAX_RETRY_ATTEMPTS) {
             printf("Removing message that exceeded retry limit\n");
-            should_keep = 0;
-            cleaned_count++;
+            should_remove = 1;
         }
         
-        // Keep valid messages
-        if (should_keep) {
-            temp_messages[temp_count] = *msg;
-            temp_count++;
+        if (should_remove) {
+            // Remove node from list
+            if (prev == NULL) {
+                // Removing head
+                queue->head = next;
+            } else {
+                prev->next = next;
+            }
+            
+            // Update tail if needed
+            if (current == queue->tail) {
+                queue->tail = prev;
+            }
+            
+            queue->count--;
+            cleaned_count++;
+            
+            // Free the message node (caller manages message_ptr)
+            free(current);
+            
+            current = next;
+        } else {
+            prev = current;
+            current = next;
         }
-    }
-    
-    // Rebuild queue with valid messages
-    queue->front = 0;
-    queue->rear = temp_count;
-    queue->count = temp_count;
-    
-    for (int i = 0; i < temp_count; i++) {
-        queue->messages[i] = temp_messages[i];
     }
     
     if (cleaned_count > 0) {

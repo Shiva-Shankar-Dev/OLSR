@@ -158,32 +158,23 @@ void send_hello_message(struct control_queue* queue) {
         return;
     }
 
-    uint8_t serialized_buf[1024];
-    int serialized_size = serialize_hello(hello_msg, serialized_buf);
-    if (serialized_size <= 0) {
-        printf("Error: Failed to serialize HELLO message\n");
-        return;
-    }
+    printf("HELLO message prepared (seq=%d)\n", ++message_seq_num);
+    printf("Willingness: %d, Neighbors: %d, Slot=%d\n", 
+           hello_msg->willingness, hello_msg->neighbor_count, hello_msg->reserved_slot);
 
-    // Update header / seq for logging
-    struct olsr_message hdr;
-    hdr.msg_type = MSG_HELLO;
-    hdr.vtime = 6;
-    hdr.originator = node_id;
-    hdr.ttl = 1;
-    hdr.hop_count = 0;
-    hdr.msg_seq_num = ++message_seq_num;
-    hdr.body = hello_msg;
-    hdr.msg_size = sizeof(struct olsr_message) + serialized_size;
-
-    printf("HELLO message prepared (type=%d, size=%d, seq=%d)\n", hdr.msg_type, hdr.msg_size, hdr.msg_seq_num);
-    printf("Willingness: %d, Neighbors: %d, Slot=%d\n", hello_msg->willingness, hello_msg->neighbor_count, hello_msg->reserved_slot);
-
-    int result = push_hello_to_queue(queue, serialized_buf, serialized_size);
+    // Push pointer to the HELLO structure directly to the queue
+    // RRC/TDMA layer will handle serialization
+    int result = push_to_control_queue(queue, MSG_HELLO, (void*)hello_msg);
     if (result == 0) {
-        printf("HELLO Message successfully queued for MAC Layer\n");
+        printf("HELLO Message successfully queued for RRC/TDMA Layer\n");
     } else {
         printf("ERROR: Failed to queue HELLO Message (code=%d)\n", result);
+        // Free the message if queueing failed
+        free(hello_msg->neighbors);
+        if (hello_msg->two_hop_neighbors) {
+            free(hello_msg->two_hop_neighbors);
+        }
+        free(hello_msg);
     }
 }
 
@@ -369,126 +360,6 @@ int get_mpr_selector_count(void) {
         }
     }
     return count;
-}
-
-/**
- * @brief Push a HELLO message to the control queue
- * 
- * Creates a new HELLO message and adds it to the specified control queue
- * for later processing. This function combines message generation with
- * queue management.
- * 
- * @param queue Pointer to the control queue where the message will be stored
- * @return 0 on success, -1 on failure
- * 
- * @note The control queue takes ownership of the message data
- */
-int push_hello_to_queue(struct control_queue* queue, const uint8_t* serialized_buffer, int serialized_size) {
-    if (!queue) {
-        printf("Error: Control queue is NULL\n");
-        return -1;
-    }
-
-    if (serialized_size <= 0 || !serialized_buffer) {
-        printf("Error: Invalid serialized HELLO buffer or size\n");
-        return -1;
-    }
-
-    int result = push_to_control_queue(queue, MSG_HELLO, serialized_buffer, (size_t)serialized_size);
-
-    if (result == 0) {
-        printf("HELLO message serialized and queued (size=%d bytes)\n", serialized_size);
-    } else {
-        printf("Error: Failed to push HELLO into control queue (size=%d)\n", serialized_size);
-    }
-
-    return result;
-}
-
-/**
- * @brief Serialize a HELLO message to a buffer
- * 
- * SEND FLOW - Step 2: Serialize
- * Converts a structured HELLO message into a byte stream for network transmission.
- * This is called after generate_hello_message() and before queuing.
- * 
- * Flow: generate_hello_message() → [serialize_hello()] → push_to_queue() → transmit
- * 
- * @param hello Pointer to HELLO message
- * @param buffer Buffer to write to
- * @return Number of bytes written
- */
-int serialize_hello(const struct olsr_hello* hello, uint8_t* buffer) {
-    int offset = 0;
-    
-    // Serialize basic HELLO fields
-    memcpy(buffer + offset, &hello->hello_interval, sizeof(uint16_t)); offset += sizeof(uint16_t);
-    memcpy(buffer + offset, &hello->willingness, sizeof(uint8_t)); offset += sizeof(uint8_t);
-    memcpy(buffer + offset, &hello->neighbor_count, sizeof(uint8_t)); offset += sizeof(uint8_t);
-    memcpy(buffer + offset, &hello->reserved_slot, sizeof(int32_t)); 
-offset += sizeof(int32_t);
-    
-    // Serialize one-hop neighbors
-    for (int i = 0; i < hello->neighbor_count; i++) {
-        memcpy(buffer + offset, &hello->neighbors[i], sizeof(struct hello_neighbor));
-        offset += sizeof(struct hello_neighbor);
-    }
-    
-    // Serialize two-hop neighbor count
-    memcpy(buffer + offset, &hello->two_hop_count, sizeof(uint8_t)); offset += sizeof(uint8_t);
-    
-    // Serialize two-hop neighbors with TDMA information
-    for (int i = 0; i < hello->two_hop_count; i++) {
-        memcpy(buffer + offset, &hello->two_hop_neighbors[i], sizeof(struct two_hop_hello_neighbor));
-        offset += sizeof(struct two_hop_hello_neighbor);
-    }
-    
-    return offset;
-}
-
-/**
- * @brief Deserialize a HELLO message from a buffer
- * @param hello Pointer to HELLO message to fill
- * @param buffer Buffer to read from
- * @return Number of bytes read
- */
-int deserialize_hello(struct olsr_hello* hello, const uint8_t* buffer) {
-    int offset = 0;
-    
-    // Deserialize basic HELLO fields
-    memcpy(&hello->hello_interval, buffer + offset, sizeof(uint16_t)); offset += sizeof(uint16_t);
-    memcpy(&hello->willingness, buffer + offset, sizeof(uint8_t)); offset += sizeof(uint8_t);
-    memcpy(&hello->neighbor_count, buffer + offset, sizeof(uint8_t)); offset += sizeof(uint8_t);
-    memcpy(&hello->reserved_slot, buffer + offset, sizeof(int32_t)); offset += sizeof(int32_t);
-    
-    // Deserialize one-hop neighbors
-    if (hello->neighbor_count > 0) {
-        static struct hello_neighbor neighbors_static[MAX_NEIGHBORS];
-        hello->neighbors = neighbors_static;
-        for (int i = 0; i < hello->neighbor_count; i++) {
-            memcpy(&hello->neighbors[i], buffer + offset, sizeof(struct hello_neighbor));
-            offset += sizeof(struct hello_neighbor);
-        }
-    } else {
-        hello->neighbors = NULL;
-    }
-    
-    // Deserialize two-hop neighbor count
-    memcpy(&hello->two_hop_count, buffer + offset, sizeof(uint8_t)); offset += sizeof(uint8_t);
-    
-    // Deserialize two-hop neighbors
-    if (hello->two_hop_count > 0) {
-        static struct two_hop_hello_neighbor two_hop_static[MAX_TWO_HOP_NEIGHBORS];
-        hello->two_hop_neighbors = two_hop_static;
-        for (int i = 0; i < hello->two_hop_count; i++) {
-            memcpy(&hello->two_hop_neighbors[i], buffer + offset, sizeof(struct two_hop_hello_neighbor));
-            offset += sizeof(struct two_hop_hello_neighbor);
-        }
-    } else {
-        hello->two_hop_neighbors = NULL;
-    }
-    
-    return offset;
 }
 
 /**
@@ -820,15 +691,18 @@ int generate_emergency_hello(struct control_queue* queue) {
     struct olsr_hello* hello_msg = generate_hello_message();
     if (!hello_msg) return -1;
 
-    uint8_t serialized_buf[1024];
-    int serialized_size = serialize_hello(hello_msg, serialized_buf);
-    if (serialized_size <= 0) return -1;
-
-    int result = push_hello_to_queue(queue, serialized_buf, serialized_size);
+    // Push pointer to the HELLO structure directly to the queue
+    int result = push_to_control_queue(queue, MSG_HELLO, (void*)hello_msg);
     if (result == 0) {
         printf("Emergency HELLO successfully queued\n");
     } else {
         printf("ERROR: Failed to queue emergency HELLO\n");
+        // Free the message if queueing failed
+        free(hello_msg->neighbors);
+        if (hello_msg->two_hop_neighbors) {
+            free(hello_msg->two_hop_neighbors);
+        }
+        free(hello_msg);
     }
     return result;
 }

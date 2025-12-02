@@ -138,6 +138,7 @@ extern uint16_t message_seq_num;
  * @brief Control message structure
  * 
  * Represents a single message in the control queue with metadata and retry logic.
+ * Uses a linked list structure where each node stores a pointer to the actual message.
  */
 struct control_message {
     uint8_t msg_type;        /**< Type of message (MSG_HELLO, MSG_TC, etc.) */
@@ -145,20 +146,19 @@ struct control_message {
     time_t next_retry_time;  /**< Timestamp for next retry attempt */
     int retry_count;         /**< Number of retry attempts made */
     uint32_t destination_id; /**< Destination node ID (for tracking failed links) */
-    uint8_t msg_data[512];   /**< Embedded message data buffer */
-    size_t data_size;        /**< Actual size of data in buffer */
+    void* message_ptr;       /**< Pointer to actual message structure (olsr_hello*, olsr_tc*, etc.) */
+    struct control_message* next; /**< Pointer to next message in linked list */
 };
 
 /**
  * @brief Control queue structure
  * 
- * Circular queue for managing OLSR control messages.
- * Used for queuing HELLO and TC messages before transmission.
+ * Linked list queue for managing OLSR control messages.
+ * Used for queuing HELLO and TC messages before transmission to RRC/TDMA layer.
  */
 struct control_queue {
-    struct control_message messages[MAX_QUEUE_SIZE]; /**< Array of messages */
-    int front;  /**< Index of front element in queue */
-    int rear;   /**< Index of rear element in queue */
+    struct control_message* head;  /**< Pointer to first message in queue */
+    struct control_message* tail;  /**< Pointer to last message in queue */
     int count;  /**< Current number of messages in queue */
 };
 
@@ -172,11 +172,10 @@ void init_control_queue(struct control_queue* queue);
  * @brief Push a message to the control queue
  * @param queue Pointer to the control queue
  * @param msg_type Type of the message
- * @param msg_data Pointer to message data
- * @param data_size Size of the message data
+ * @param message_ptr Pointer to the message structure (olsr_hello*, olsr_tc*, etc.)
  * @return 0 on success, -1 on failure
  */
-int push_to_control_queue(struct control_queue* queue,uint8_t msg_type,const uint8_t* msg_data,size_t data_size);
+int push_to_control_queue(struct control_queue* queue, uint8_t msg_type, void* message_ptr);
 /**
  * @brief Pop a message from the control queue
  * @param queue Pointer to the control queue
@@ -188,13 +187,12 @@ int pop_from_control_queue(struct control_queue* queue,struct control_message* o
  * @brief Add a message to the control queue with retry capability
  * @param queue Pointer to the control queue
  * @param msg_type Type of the message
- * @param msg_data Pointer to message data
- * @param data_size Size of the message data
+ * @param message_ptr Pointer to the message structure
  * @param destination_id Destination node ID for tracking
  * @return 0 on success, -1 on failure
  */
 int add_message_with_retry(struct control_queue* queue, uint8_t msg_type, 
-                          const uint8_t* msg_data, size_t data_size, uint32_t destination_id);
+                          void* message_ptr, uint32_t destination_id);
 
 /**
  * @brief Process retry queue for message retransmissions

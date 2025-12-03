@@ -32,16 +32,17 @@ static char *id_to_string(uint32_t id, char* buffer) {
 
 /** @brief Global neighbor table array */
 struct neighbor_entry neighbor_table[MAX_NEIGHBORS];
+
 /** @brief Current number of neighbors in the table */
 int neighbor_count = 0;
+
 /** @brief This node's willingness to act as MPR */
 uint8_t node_willingness = WILL_DEFAULT;
+
 /** @brief This node's IP address */
 uint32_t node_id = 0;
 
 /** @brief TDMA slot reservation table for neighbors */
-
-
 static struct {
     uint32_t node_id;
     int reserved_slot;
@@ -50,8 +51,6 @@ static struct {
 } neighbor_slots[MAX_NEIGHBORS + MAX_TWO_HOP_NEIGHBORS];
 
 static int slot_table_size = 0;
-
-
 
 /** @brief This node's TDMA slot reservation */
 static int my_reserved_slot = -1;  // -1 means no reservation
@@ -65,6 +64,7 @@ uint16_t message_seq_num = 0;
 int get_my_reserved_slot(void) {
     return my_reserved_slot;
 }
+
 /**
  * @brief Generate a HELLO message
  * 
@@ -85,7 +85,7 @@ struct olsr_hello* generate_hello_message(void) {
     static struct olsr_hello hello_msg_static;
     struct olsr_hello* hello_msg = &hello_msg_static;
     memset(hello_msg, 0, sizeof(struct olsr_hello));
-    
+
     hello_msg->hello_interval = HELLO_INTERVAL;
     hello_msg->willingness = node_willingness;
     hello_msg->neighbor_count = neighbor_count;

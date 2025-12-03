@@ -56,6 +56,7 @@
  */
 #define HELLO_INTERVAL 2  /**< HELLO message interval in seconds */
 #define TC_INTERVAL    5  /**< TC message interval in seconds */
+#define TC_VALIDITY_TIME 15  /**< TC message validity time in seconds */
 #define HELLO_TIMEOUT  6  /**< HELLO timeout for link failure detection in seconds */
 /** @} */
 
@@ -80,6 +81,16 @@
 /** @} */
 
 #define MAX_NEIGHBORS 40  /**< Maximum number of neighbors in table */
+
+/**
+ * @defgroup GlobalRouting Global Routing Constants
+ * @brief Constants for global routing and message forwarding
+ * @{
+ */
+#define MAX_DUPLICATE_ENTRIES 200   /**< Maximum entries in duplicate detection table */
+#define MAX_TOPOLOGY_LINKS 500      /**< Maximum topology links from TC messages */
+#define DUPLICATE_HOLD_TIME 30      /**< Seconds to hold duplicate entries */
+/** @} */
 
 /**
  * @brief Neighbor table entry structure
@@ -131,6 +142,27 @@ extern uint8_t node_willingness;
 extern uint32_t node_id;
 /** @brief Global message sequence number */
 extern uint16_t message_seq_num;
+
+/**
+ * @brief Duplicate detection table entry
+ * 
+ * Used to prevent processing the same message multiple times
+ * when messages are flooded through MPR nodes.
+ */
+struct duplicate_entry {
+    uint32_t originator;     /**< Message originator address */
+    uint16_t seq_number;     /**< Message sequence number */
+    time_t timestamp;        /**< When entry was created */
+};
+
+/**
+ * @brief Global topology link from TC messages
+ * 
+ * Note: struct topology_link is defined in routing.h
+ */
+
+// Global routing data structures are managed internally by routing.c
+// No extern declarations needed here
 
 #define MAX_QUEUE_SIZE 100  /**< Maximum size of control message queue */
 
@@ -207,6 +239,8 @@ int process_retry_queue(struct control_queue* queue);
  * @return Number of messages cleaned up
  */
 int cleanup_expired_messages(struct control_queue* queue);
+
+// Global routing functions are implemented in routing.c with conditional compilation
 
 #endif
 

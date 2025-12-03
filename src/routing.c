@@ -18,6 +18,152 @@
 #include "../include/hello.h"
 #include "../include/routing.h"
 
+// Global topology database - always enabled
+struct global_topology_entry {
+    uint32_t from_node;
+    uint32_t to_node;
+    uint16_t ansn;
+    time_t validity_time;
+};
+
+static struct duplicate_entry duplicate_table[MAX_DUPLICATE_ENTRIES];
+static int duplicate_count = 0;
+static struct global_topology_entry global_topology[MAX_TOPOLOGY_LINKS];
+static int global_topology_count = 0;
+
+// Global routing function implementations - always enabled
+int is_duplicate_message(uint32_t originator, uint16_t seq_number) {
+    for (int i = 0; i < duplicate_count; i++) {
+        if (duplicate_table[i].originator == originator &&
+            duplicate_table[i].seq_number == seq_number) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+int add_duplicate_entry(uint32_t originator, uint16_t seq_number) {
+    if (duplicate_count >= MAX_DUPLICATE_ENTRIES) {
+        return -1;
+    }
+    duplicate_table[duplicate_count].originator = originator;
+    duplicate_table[duplicate_count].seq_number = seq_number;
+    duplicate_table[duplicate_count].timestamp = time(NULL);
+    duplicate_count++;
+    return 0;
+}
+
+int add_topology_link(uint32_t from_node, uint32_t to_node, uint16_t ansn, time_t validity_time) {
+    for (int i = 0; i < global_topology_count; i++) {
+        if (global_topology[i].from_node == from_node &&
+            global_topology[i].to_node == to_node) {
+            if (ansn >= global_topology[i].ansn) {
+                global_topology[i].ansn = ansn;
+                global_topology[i].validity_time = validity_time;
+                return 0;
+            }
+            return 0;
+        }
+    }
+    
+    if (global_topology_count < MAX_TOPOLOGY_LINKS) {
+        global_topology[global_topology_count].from_node = from_node;
+        global_topology[global_topology_count].to_node = to_node;
+        global_topology[global_topology_count].ansn = ansn;
+        global_topology[global_topology_count].validity_time = validity_time;
+        global_topology_count++;
+        return 0;
+    }
+    return -1;
+}
+
+int get_all_topology_links(struct topology_link* links, int max_links) {
+    int count = 0;
+    time_t now = time(NULL);
+    
+    for (int i = 0; i < global_topology_count && count < max_links; i++) {
+        if (global_topology[i].validity_time > now) {
+            links[count].from_id = global_topology[i].from_node;
+            links[count].to_id = global_topology[i].to_node;
+            links[count].cost = 1;
+            links[count].validity = global_topology[i].validity_time;
+            count++;
+        }
+    }
+    return count;
+}
+
+int cleanup_topology_links(void) {
+    time_t now = time(NULL);
+    int cleaned = 0;
+    int new_count = 0;
+    
+    for (int i = 0; i < global_topology_count; i++) {
+        if (global_topology[i].validity_time > now) {
+            if (new_count != i) {
+                global_topology[new_count] = global_topology[i];
+            }
+            new_count++;
+        } else {
+            cleaned++;
+        }
+    }
+    global_topology_count = new_count;
+    return cleaned;
+}
+
+int cleanup_duplicate_table(void) {
+    time_t now = time(NULL);
+    int cleaned = 0;
+    int new_count = 0;
+    
+    for (int i = 0; i < duplicate_count; i++) {
+        if (now - duplicate_table[i].timestamp < DUPLICATE_HOLD_TIME) {
+            if (new_count != i) {
+                duplicate_table[new_count] = duplicate_table[i];
+            }
+            new_count++;
+        } else {
+            cleaned++;
+        }
+    }
+    duplicate_count = new_count;
+    return cleaned;
+}
+
+int should_forward_message(uint32_t sender_addr, uint32_t originator_addr) {
+    (void)originator_addr;
+    for (int i = 0; i < neighbor_count; i++) {
+        if (neighbor_table[i].neighbor_id == sender_addr &&
+            neighbor_table[i].link_status == SYM_LINK &&
+            neighbor_table[i].is_mpr_selector) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+int forward_tc_message(struct olsr_message* msg, uint32_t sender_addr, struct control_queue* queue) {
+    (void)sender_addr;
+    if (!msg || !queue || msg->ttl <= 1) {
+        return -1;
+    }
+    
+    struct olsr_tc* tc = (struct olsr_tc*)msg->body;
+    uint8_t serialized_buf[1024];
+    int serialized_size = serialize_tc(tc, serialized_buf);
+    
+    if (serialized_size > 0) {
+        return push_to_control_queue(queue, MSG_TC, serialized_buf, (size_t)serialized_size);
+    }
+    return -1;
+}
+
+// External variables from other modules
+extern uint32_t node_id;
+extern struct neighbor_entry neighbor_table[];
+extern int neighbor_count;
+
 /**
  * @brief Convert a node ID to a string representation
  * @param id The node ID to convert
@@ -41,11 +187,14 @@ static struct topology_link tc_topology[MAX_NODES * MAX_NODES];
 static int tc_topology_size = 0;
 
 /**
- * @brief Add or update a topology link from TC message
+ * @brief Add or update a topology link from TC message (legacy compatibility)
  * @param from_id Source node ID
  * @param to_id Destination node ID  
  * @param validity Validity time
  * @return 0 on success, -1 if topology table is full
+ * 
+ * NOTE: This function maintains the legacy tc_topology array for backward
+ * compatibility. New code should use the global topology database directly.
  */
 int update_tc_topology(uint32_t from_id, uint32_t to_id, time_t validity) {
     if (tc_topology_size >= MAX_NODES * MAX_NODES) {
@@ -59,7 +208,7 @@ int update_tc_topology(uint32_t from_id, uint32_t to_id, time_t validity) {
     tc_topology_size++;
     
     char from_str[16], to_str[16];
-    printf("Added TC topology link: %s -> %s (validity=%lds)\n",
+    printf("Legacy TC topology: %s -> %s (validity=%lds)\n",
            id_to_string(from_id, from_str),
            id_to_string(to_id, to_str),
            (long)(validity - time(NULL)));
@@ -121,13 +270,19 @@ static int find_node_index(uint32_t* nodes, int node_count, uint32_t target_id) 
 }
 
 /**
- * @brief Build topology graph from neighbor table and TC messages
+ * @brief Build complete topology graph from neighbor table and global topology database
+ * 
+ * Enhanced version that uses the global topology database from TC messages
+ * for comprehensive multi-hop routing calculation.
  */
 int build_topology_graph(struct topology_link* topology, int max_links) {
     int link_count = 0;
     time_t now = time(NULL);
     
-    // First add direct neighbor links from neighbor table
+    printf("\n=== BUILDING COMPLETE TOPOLOGY GRAPH ===\n");
+    
+    // Step 1: Add direct neighbor links (1-hop)
+    int direct_links = 0;
     for (int i = 0; i < neighbor_count && link_count < max_links; i++) {
         if (neighbor_table[i].link_status == SYM_LINK) {
             topology[link_count].from_id = node_id;
@@ -135,35 +290,84 @@ int build_topology_graph(struct topology_link* topology, int max_links) {
             topology[link_count].cost = 1;  // Standard OLSR cost
             topology[link_count].validity = neighbor_table[i].last_seen + 10;
             link_count++;
+            direct_links++;
             
             char node_str[16], neighbor_str[16];
-            printf("Added direct link: %s -> %s (cost=1)\n",
+            printf("Direct link: %s -> %s (cost=1)\n",
                    id_to_string(node_id, node_str),
                    id_to_string(neighbor_table[i].neighbor_id, neighbor_str));
         }
     }
     
-    // Remove expired TC topology entries
-    cleanup_tc_topology();
+    // Step 2: Clean up expired topology links
+    cleanup_topology_links();
     
-    // Then add topology information from TC messages
-    for (int i = 0; i < tc_topology_size && link_count < max_links; i++) {
-        if (tc_topology[i].validity > now) {  // Only add valid links
-            topology[link_count] = tc_topology[i];
+    // Step 3: Add all valid topology links from global database (multi-hop)
+    struct topology_link global_links[MAX_TOPOLOGY_LINKS];
+    int global_count = get_all_topology_links(global_links, MAX_TOPOLOGY_LINKS);
+    
+    if (global_count > 0) {
+        printf("Using global topology database with %d links\n", global_count);
+    } else {
+        printf("No global topology links available\n");
+    }
+    
+    int tc_links_added = 0;
+    for (int i = 0; i < global_count && link_count < max_links; i++) {
+        // Avoid duplicate links (check if already added as direct link)
+        int is_duplicate = 0;
+        for (int j = 0; j < link_count; j++) {
+            if (topology[j].from_id == global_links[i].from_id &&
+                topology[j].to_id == global_links[i].to_id) {
+                is_duplicate = 1;
+                break;
+            }
+        }
+        
+        if (!is_duplicate) {
+            topology[link_count].from_id = global_links[i].from_id;
+            topology[link_count].to_id = global_links[i].to_id;
+            topology[link_count].cost = 1;  // Standard OLSR cost
+            topology[link_count].validity = global_links[i].validity;
             link_count++;
+            tc_links_added++;
             
             char from_str[16], to_str[16];
-            printf("Added TC link: %s -> %s (cost=%d)\n",
-                   id_to_string(tc_topology[i].from_id, from_str),
-                   id_to_string(tc_topology[i].to_id, to_str),
-                   tc_topology[i].cost);
+            printf("Global link: %s -> %s (cost=1)\n",
+                   id_to_string(global_links[i].from_id, from_str),
+                   id_to_string(global_links[i].to_id, to_str));
         }
     }
     
-    printf("Built complete topology with %d links (%d direct, %d from TC)\n",
-           link_count, 
-           (link_count > tc_topology_size) ? link_count - tc_topology_size : 0,
-           (tc_topology_size < link_count) ? tc_topology_size : link_count - (link_count - tc_topology_size));
+    // Step 4: Also add legacy TC topology for backward compatibility
+    cleanup_tc_topology();
+    int legacy_tc_added = 0;
+    for (int i = 0; i < tc_topology_size && link_count < max_links; i++) {
+        if (tc_topology[i].validity > now) {
+            // Check if this link is already in the topology
+            int is_duplicate = 0;
+            for (int j = 0; j < link_count; j++) {
+                if (topology[j].from_id == tc_topology[i].from_id &&
+                    topology[j].to_id == tc_topology[i].to_id) {
+                    is_duplicate = 1;
+                    break;
+                }
+            }
+            
+            if (!is_duplicate) {
+                topology[link_count] = tc_topology[i];
+                link_count++;
+                legacy_tc_added++;
+            }
+        }
+    }
+    
+    printf("\nTopology Summary:\n");
+    printf("  Direct neighbors: %d\n", direct_links);
+    printf("  Global TC links:  %d\n", tc_links_added);
+    printf("  Legacy TC links:  %d\n", legacy_tc_added);
+    printf("  Total links:      %d\n", link_count);
+    printf("=== TOPOLOGY GRAPH COMPLETE ===\n\n");
     
     return link_count;
 }
@@ -257,23 +461,35 @@ void dijkstra_shortest_path(uint32_t source, struct topology_link* topology, int
 }
 
 /**
- * @brief Calculate routing table using shortest path algorithm
+ * @brief Calculate routing table using complete network topology and Dijkstra's algorithm
+ * 
+ * Enhanced version that uses both direct neighbors and global topology database
+ * to calculate optimal routes to all reachable destinations in the network.
  */
 void calculate_routing_table(void) {
     if (node_id == 0) {
-        printf("Error: Node ID not set\n");
+        printf("Error: Node ID not set for routing calculation\n");
         return;
     }
     
+    printf("\n=== CALCULATING ROUTING TABLE ===\n");
+    char node_str[16];
+    printf("Source node: %s\n", id_to_string(node_id, node_str));
+    
+    // Build complete network topology
     struct topology_link topology[MAX_NODES * MAX_NODES];
     int link_count = build_topology_graph(topology, MAX_NODES * MAX_NODES);
     
     if (link_count > 0) {
+        printf("Running Dijkstra with %d topology links...\n", link_count);
         dijkstra_shortest_path(node_id, topology, link_count);
+        print_routing_table();
     } else {
         clear_routing_table();
-        printf("No topology links found, routing table cleared\n");
+        printf("No topology links found - network disconnected or no neighbors\n");
     }
+    
+    printf("=== ROUTING CALCULATION COMPLETE ===\n\n");
 }
 
 /**
@@ -349,9 +565,15 @@ void clear_routing_table(void) {
 }
 
 /**
- * @brief Update routing table
+ * @brief Update routing table in response to topology changes
+ * 
+ * This function is called whenever the network topology changes due to:
+ * - New neighbor discovery
+ * - Neighbor timeout/failure  
+ * - Receipt of TC messages with new topology information
  */
 void update_routing_table(void) {
+    printf("ROUTING_UPDATE: Topology changed - recalculating routes\n");
     calculate_routing_table();
 }
 

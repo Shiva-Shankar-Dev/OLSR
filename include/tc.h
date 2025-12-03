@@ -53,4 +53,14 @@ int get_mpr_selector_count(void);
  */
 uint16_t get_current_ansn(void);
 
+/**
+ * @brief Add or update a topology link from TC message in global database
+ * @param from_node Source node of the link
+ * @param to_node Destination node of the link
+ * @param ansn ANSN of the TC message
+ * @param validity_time When this link expires
+ * @return 0 on success, -1 on failure
+ */
+int add_topology_link(uint32_t from_node, uint32_t to_node, uint16_t ansn, time_t validity_time);
+
 #endif

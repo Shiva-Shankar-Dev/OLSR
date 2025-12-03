@@ -15,6 +15,7 @@
 #define MAX_ROUTING_ENTRIES 100  /**< Maximum entries in routing table */
 #define INFINITE_COST INT_MAX    /**< Infinite cost for unreachable nodes */
 #define MAX_NODES 50            /**< Maximum nodes in topology */
+#define MAX_TOPOLOGY_LINKS 500  /**< Maximum topology links from TC messages */
 
 /**
  * @brief Routing table entry structure

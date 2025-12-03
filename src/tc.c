@@ -10,6 +10,15 @@
 #include "../include/tc.h"
 #include "../include/mpr.h"
 
+// Global routing functions are in routing.c
+// Forward declarations
+int is_duplicate_message(uint32_t originator, uint16_t seq_number);
+int add_duplicate_entry(uint32_t originator, uint16_t seq_number);
+int should_forward_message(uint32_t sender_addr, uint32_t originator_addr);
+int forward_tc_message(struct olsr_message* msg, uint32_t sender_addr, struct control_queue* queue);
+int add_topology_link(uint32_t from_node, uint32_t to_node, uint16_t ansn, time_t validity_time);
+extern struct control_queue global_ctrl_queue;
+
 /**
  * @brief Convert a node ID to a string representation
  * @param id The node ID to convert
@@ -28,50 +37,85 @@ static uint16_t ansn_counter = 0;
 /**
  * @brief Process a received TC message
  * 
- * Updates topology information from received TC message and
- * triggers routing table recalculation if needed.
+ * Enhanced TC processing with duplicate detection, proper sequencing,
+ * and message forwarding for global routing.
  * 
+ * RECEIVE FLOW CONTEXT:
+ * This function is called after the following steps:
+ * 1. Raw bytes received from MAC layer
+ * 2. TC message deserialized (bytes → struct olsr_tc)
+ * 3. olsr_message wrapper created with body pointing to deserialized TC
+ * 4. THIS function called to process the structured data
  * 
+ * @param msg Pointer to received OLSR message containing TC
+ *            msg->body must point to a deserialized struct olsr_tc
+ * @param sender_addr IP address of message sender
  */
 void process_tc_message(struct olsr_message* msg, uint32_t sender_addr) {
-    (void)sender_addr; // Suppress unused parameter warning
     if (!msg || msg->msg_type != MSG_TC) {
         printf("Error: Invalid TC message\n");
         return;
     }
     
+    char orig_str[16], sender_str[16];
+    printf("\n=== PROCESSING TC MESSAGE ===\n");
+    printf("From: %s (via %s)\n", 
+           id_to_string(msg->originator, orig_str),
+           id_to_string(sender_addr, sender_str));
+    printf("TTL: %d, Hops: %d, SeqNum: %d\n", msg->ttl, msg->hop_count, msg->msg_seq_num);
+    
+    // Step 1: Duplicate Detection
+    if (is_duplicate_message(msg->originator, msg->msg_seq_num)) {
+        printf("TC_PROCESS: Duplicate message - ignoring\n");
+        printf("=== TC PROCESSING COMPLETE (DUPLICATE) ===\n\n");
+        return;
+    }
+    
+    // Step 2: Add to duplicate table
+    add_duplicate_entry(msg->originator, msg->msg_seq_num);
+    
     // Extract the deserialized TC message from the wrapper
-    // This was already deserialized before calling this function
     struct olsr_tc* tc = (struct olsr_tc*)msg->body;
     if (!tc) {
         printf("Error: Empty TC message body\n");
         return;
     }
     
-    char orig_str[16];
-    printf("Processing TC from %s: ANSN=%d, selectors=%d\n",
-           id_to_string(msg->originator, orig_str),
-           tc->ansn, tc->selector_count);
+    printf("TC Content: ANSN=%d, MPR Selectors=%d\n", tc->ansn, tc->selector_count);
     
-    // Compute validity time (now + vtime)
+    // Step 3: Process TC content - update global topology
     time_t validity = time(NULL) + msg->vtime;
+    int topology_updated = 0;
     
-    // Update topology information for each MPR selector
     for (int i = 0; i < tc->selector_count; i++) {
         uint32_t selector = tc->mpr_selectors[i].neighbor_addr;
         
-        // Add topology link: originator -> selector
-        update_tc_topology(msg->originator, selector, validity);
+        // Add to global topology database
+        if (add_topology_link(msg->originator, selector, tc->ansn, validity) == 0) {
+            topology_updated = 1;
+        }
         
-        char orig_str2[16], sel_str[16];
-        printf("  Topology: %s -> %s (valid for %ds)\n",
-               id_to_string(msg->originator, orig_str2),
-               id_to_string(selector, sel_str),
-               msg->vtime);
+        // Also update old routing topology (for compatibility)
+        update_tc_topology(msg->originator, selector, validity);
     }
     
-    // Update routing table with new topology information
-    update_routing_table();
+    // Step 4: Update routing table if topology changed
+    if (topology_updated) {
+        printf("TC_PROCESS: Topology updated - recalculating routes\n");
+        update_routing_table();
+    }
+    
+    // Step 5: Message Forwarding (MPR flooding)
+    if (should_forward_message(sender_addr, msg->originator)) {
+        printf("TC_PROCESS: This node selected as MPR - forwarding message\n");
+        if (forward_tc_message(msg, sender_addr, &global_ctrl_queue) == 0) {
+            printf("TC_PROCESS: Message queued for forwarding\n");
+        } else {
+            printf("TC_PROCESS: Failed to forward message\n");
+        }
+    }
+    
+    printf("=== TC PROCESSING COMPLETE ===\n\n");
 }
 
 // MPR selector management is now handled through neighbor_table[].is_mpr_selector flags
@@ -155,8 +199,31 @@ void send_tc_message(struct control_queue* queue) {
         return;
     }
 
-    printf("TC message prepared (seq=%d)\n", ++message_seq_num);
-    printf("ANSN: %d, MPR Selectors: %d\n", tc_msg->ansn, tc_msg->selector_count);
+    uint8_t serialized_buf[1024];
+    int serialized_size = serialize_tc(tc_msg, serialized_buf);
+    if (serialized_size <= 0) {
+        printf("Error: Failed to serialize TC message\n");
+        return;
+    }
+
+    // Create proper OLSR message header with full sequencing
+    struct olsr_message hdr;
+    hdr.msg_type = MSG_TC;
+    hdr.vtime = TC_VALIDITY_TIME;  // Use constant for consistency
+    hdr.originator = node_id;
+    hdr.ttl = 255;                 // Maximum TTL for network-wide flooding
+    hdr.hop_count = 0;             // This is the originating node
+    hdr.msg_seq_num = ++message_seq_num;
+    hdr.body = tc_msg;
+    hdr.msg_size = sizeof(struct olsr_message) + serialized_size;
+
+    printf("\n=== GENERATING TC MESSAGE ===\n");
+    printf("Originator: 0x%08X, SeqNum: %d, TTL: %d\n", hdr.originator, hdr.msg_seq_num, hdr.ttl);
+    printf("ANSN: %d, MPR Selectors: %d, Validity: %ds\n", 
+           tc_msg->ansn, tc_msg->selector_count, hdr.vtime);
+    
+    // Add to our own duplicate table to prevent processing our own message
+    add_duplicate_entry(hdr.originator, hdr.msg_seq_num);
 
     // Push pointer to the TC structure directly to the queue
     // RRC/TDMA layer will handle serialization
@@ -170,6 +237,57 @@ void send_tc_message(struct control_queue* queue) {
 }
 
 // get_mpr_selector_count() is now implemented in hello.c
+
+/**
+ * @brief Deserialize a TC message from a buffer
+ * 
+ * RECEIVE FLOW - Step 1: Deserialize
+ * Converts received bytes into a structured TC message for processing.
+ * This is called before process_tc_message().
+ * 
+ * Flow: receive_bytes → [deserialize_tc()] → process_tc_message()
+ * 
+ * @param tc Pointer to TC message structure to fill
+ * @param buffer Buffer containing serialized data
+ * @return Number of bytes read, or -1 on error
+ */
+int deserialize_tc(struct olsr_tc* tc, const uint8_t* buffer) {
+    if (!tc || !buffer) {
+        return -1;
+    }
+    
+    int offset = 0;
+    
+    // Deserialize ANSN
+    memcpy(&tc->ansn, buffer + offset, sizeof(uint16_t));
+    offset += sizeof(uint16_t);
+    
+    // Deserialize selector count
+    memcpy(&tc->selector_count, buffer + offset, sizeof(uint8_t));
+    offset += sizeof(uint8_t);
+    
+    // Validate selector count
+    if (tc->selector_count > MAX_NEIGHBORS) {
+        printf("Error: Invalid selector count %d in TC message\n", tc->selector_count);
+        return -1;
+    }
+    
+    // Allocate static storage for MPR selectors (similar to generate_tc_message)
+    static struct tc_neighbor mpr_selectors_static[MAX_NEIGHBORS];
+    
+    // Deserialize MPR selectors
+    for (int i = 0; i < tc->selector_count; i++) {
+        memcpy(&mpr_selectors_static[i], buffer + offset, sizeof(struct tc_neighbor));
+        offset += sizeof(struct tc_neighbor);
+    }
+    
+    tc->mpr_selectors = (tc->selector_count > 0) ? mpr_selectors_static : NULL;
+    
+    printf("Deserialized TC: ANSN=%d, selectors=%d, bytes=%d\n", 
+           tc->ansn, tc->selector_count, offset);
+    
+    return offset;
+}
 
 /**
  * @brief Get current ANSN value

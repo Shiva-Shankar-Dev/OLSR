@@ -150,13 +150,13 @@ int forward_tc_message(struct olsr_message* msg, uint32_t sender_addr, struct co
     }
     
     struct olsr_tc* tc = (struct olsr_tc*)msg->body;
-    uint8_t serialized_buf[1024];
-    int serialized_size = serialize_tc(tc, serialized_buf);
     
-    if (serialized_size > 0) {
-        return push_to_control_queue(queue, MSG_TC, serialized_buf, (size_t)serialized_size);
-    }
-    return -1;
+    // Create a decremented TTL copy of the message for forwarding
+    msg->ttl--;
+    msg->hop_count++;
+    
+    // Push the TC structure directly to the queue (no serialization needed)
+    return push_to_control_queue(queue, MSG_TC, (void*)tc);
 }
 
 // External variables from other modules

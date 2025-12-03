@@ -199,13 +199,6 @@ void send_tc_message(struct control_queue* queue) {
         return;
     }
 
-    uint8_t serialized_buf[1024];
-    int serialized_size = serialize_tc(tc_msg, serialized_buf);
-    if (serialized_size <= 0) {
-        printf("Error: Failed to serialize TC message\n");
-        return;
-    }
-
     // Create proper OLSR message header with full sequencing
     struct olsr_message hdr;
     hdr.msg_type = MSG_TC;
@@ -215,7 +208,7 @@ void send_tc_message(struct control_queue* queue) {
     hdr.hop_count = 0;             // This is the originating node
     hdr.msg_seq_num = ++message_seq_num;
     hdr.body = tc_msg;
-    hdr.msg_size = sizeof(struct olsr_message) + serialized_size;
+    hdr.msg_size = sizeof(struct olsr_message) + sizeof(struct olsr_tc);
 
     printf("\n=== GENERATING TC MESSAGE ===\n");
     printf("Originator: 0x%08X, SeqNum: %d, TTL: %d\n", hdr.originator, hdr.msg_seq_num, hdr.ttl);
@@ -237,57 +230,6 @@ void send_tc_message(struct control_queue* queue) {
 }
 
 // get_mpr_selector_count() is now implemented in hello.c
-
-/**
- * @brief Deserialize a TC message from a buffer
- * 
- * RECEIVE FLOW - Step 1: Deserialize
- * Converts received bytes into a structured TC message for processing.
- * This is called before process_tc_message().
- * 
- * Flow: receive_bytes → [deserialize_tc()] → process_tc_message()
- * 
- * @param tc Pointer to TC message structure to fill
- * @param buffer Buffer containing serialized data
- * @return Number of bytes read, or -1 on error
- */
-int deserialize_tc(struct olsr_tc* tc, const uint8_t* buffer) {
-    if (!tc || !buffer) {
-        return -1;
-    }
-    
-    int offset = 0;
-    
-    // Deserialize ANSN
-    memcpy(&tc->ansn, buffer + offset, sizeof(uint16_t));
-    offset += sizeof(uint16_t);
-    
-    // Deserialize selector count
-    memcpy(&tc->selector_count, buffer + offset, sizeof(uint8_t));
-    offset += sizeof(uint8_t);
-    
-    // Validate selector count
-    if (tc->selector_count > MAX_NEIGHBORS) {
-        printf("Error: Invalid selector count %d in TC message\n", tc->selector_count);
-        return -1;
-    }
-    
-    // Allocate static storage for MPR selectors (similar to generate_tc_message)
-    static struct tc_neighbor mpr_selectors_static[MAX_NEIGHBORS];
-    
-    // Deserialize MPR selectors
-    for (int i = 0; i < tc->selector_count; i++) {
-        memcpy(&mpr_selectors_static[i], buffer + offset, sizeof(struct tc_neighbor));
-        offset += sizeof(struct tc_neighbor);
-    }
-    
-    tc->mpr_selectors = (tc->selector_count > 0) ? mpr_selectors_static : NULL;
-    
-    printf("Deserialized TC: ANSN=%d, selectors=%d, bytes=%d\n", 
-           tc->ansn, tc->selector_count, offset);
-    
-    return offset;
-}
 
 /**
  * @brief Get current ANSN value

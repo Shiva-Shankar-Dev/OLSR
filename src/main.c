@@ -1,3 +1,4 @@
+#define _DEFAULT_SOURCE  // For usleep()
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -21,28 +22,26 @@ void process_tc_message(struct olsr_message* msg, uint32_t sender_addr);
  * @brief Enhanced message processing with duplicate detection and forwarding
  * 
  * This function demonstrates the complete receive path for global OLSR:
- * 1. Receive serialized bytes (from MAC layer in real implementation)
- * 2. Parse message header for type and routing information
+ * 1. Receive structured message data (from RRC/TDMA layer)
+ * 2. Check message header for type and routing information
  * 3. Perform duplicate detection
- * 4. Deserialize to structured format
- * 5. Process message content
- * 6. Forward message if required (MPR flooding)
+ * 4. Process message content directly (no deserialization needed)
+ * 5. Forward message if required (MPR flooding)
  * 
- * @param serialized_buffer Raw bytes received from network
- * @param buffer_size Size of received data
+ * @param message_ptr Pointer to structured message (olsr_hello*, olsr_tc*)
+ * @param msg_type Type of message (MSG_HELLO, MSG_TC)
  * @param sender_addr IP address of immediate sender
  * @param originator_addr IP address of message originator
- * @param msg_type Type of message (MSG_HELLO, MSG_TC)
  * @param seq_num Message sequence number
  * @param ttl Time to live
  * @param hop_count Number of hops traveled
  * @return 0 on success, -1 on error
  */
-int receive_and_process_message_enhanced(const uint8_t* serialized_buffer, size_t buffer_size, 
+int receive_and_process_message_enhanced(void* message_ptr, uint8_t msg_type,
                                        uint32_t sender_addr, uint32_t originator_addr,
-                                       uint8_t msg_type, uint16_t seq_num, uint8_t ttl, uint8_t hop_count) {
-    if (!serialized_buffer || buffer_size == 0) {
-        printf("Error: Invalid received buffer\n");
+                                       uint16_t seq_num, uint8_t ttl, uint8_t hop_count) {
+    if (!message_ptr) {
+        printf("Error: Invalid message pointer\n");
         return -1;
     }
     
@@ -61,57 +60,49 @@ int receive_and_process_message_enhanced(const uint8_t* serialized_buffer, size_
     
     // Step 2: Process based on message type
     if (msg_type == MSG_HELLO) {
-        struct olsr_hello hello_msg;
-        memset(&hello_msg, 0, sizeof(hello_msg));
+        struct olsr_hello* hello_msg = (struct olsr_hello*)message_ptr;
         
-        int bytes_read = deserialize_hello(&hello_msg, serialized_buffer);
-        if (bytes_read > 0) {
-            struct olsr_message msg;
-            msg.msg_type = MSG_HELLO;
-            msg.vtime = 6;
-            msg.originator = sender_addr;  // HELLO always from immediate sender
-            msg.ttl = 1;
-            msg.hop_count = 0;
-            msg.msg_seq_num = seq_num;
-            msg.body = &hello_msg;
-            
-            process_hello_message(&msg, sender_addr);
-            printf("=== HELLO PROCESSING COMPLETE ===\n\n");
-            return 0;
-        }
+        struct olsr_message msg;
+        msg.msg_type = MSG_HELLO;
+        msg.vtime = 6;
+        msg.originator = sender_addr;  // HELLO always from immediate sender
+        msg.ttl = 1;
+        msg.hop_count = 0;
+        msg.msg_seq_num = seq_num;
+        msg.body = hello_msg;
+        
+        process_hello_message(&msg, sender_addr);
+        printf("=== HELLO PROCESSING COMPLETE ===\n\n");
+        return 0;
     } else if (msg_type == MSG_TC) {
-        struct olsr_tc tc_msg;
-        memset(&tc_msg, 0, sizeof(tc_msg));
+        struct olsr_tc* tc_msg = (struct olsr_tc*)message_ptr;
         
-        int bytes_read = deserialize_tc(&tc_msg, serialized_buffer);
-        if (bytes_read > 0) {
-            struct olsr_message msg;
-            msg.msg_type = MSG_TC;
-            msg.vtime = TC_VALIDITY_TIME;
-            msg.originator = originator_addr;  // TC keeps original originator
-            msg.ttl = ttl;
-            msg.hop_count = hop_count;
-            msg.msg_seq_num = seq_num;
-            msg.body = &tc_msg;
-            
-            // Process TC (includes forwarding logic)
-            process_tc_message(&msg, sender_addr);
-            printf("=== TC PROCESSING COMPLETE ===\n\n");
-            return 0;
-        }
+        struct olsr_message msg;
+        msg.msg_type = MSG_TC;
+        msg.vtime = TC_VALIDITY_TIME;
+        msg.originator = originator_addr;  // TC keeps original originator
+        msg.ttl = ttl;
+        msg.hop_count = hop_count;
+        msg.msg_seq_num = seq_num;
+        msg.body = tc_msg;
+        
+        // Process TC (includes forwarding logic)
+        process_tc_message(&msg, sender_addr);
+        printf("=== TC PROCESSING COMPLETE ===\n\n");
+        return 0;
     }
     
-    printf("Warning: Unable to deserialize message type %d\n", msg_type);
+    printf("Warning: Unknown message type %d\n", msg_type);
     return -1;
 }
 
 /**
  * @brief Legacy message processing function (backward compatibility)
  */
-int receive_and_process_message(const uint8_t* serialized_buffer, size_t buffer_size, uint32_t sender_addr) {
+int receive_and_process_message(void* message_ptr, uint8_t msg_type, uint32_t sender_addr) {
     // Use enhanced processing with default values
-    return receive_and_process_message_enhanced(serialized_buffer, buffer_size,
-                                              sender_addr, sender_addr, MSG_HELLO, 0, 1, 0);
+    return receive_and_process_message_enhanced(message_ptr, msg_type, sender_addr, 
+                                              sender_addr, 0, 1, 0);
 }
 
 void init_olsr(void){
@@ -123,7 +114,6 @@ void init_olsr(void){
     
     time_t last_hello_time = 0;
     time_t last_timeout_check = 0;
-    time_t last_cleanup = 0;
     int topology_changed = 0;
     
     // Further initialization for global routing
@@ -171,10 +161,10 @@ void init_olsr(void){
         // Process outgoing messages from control queue
         if (pop_from_control_queue(&ctrl_queue, &msg) == 0) {
             printf("\n--- OUTGOING MESSAGE ---\n");
-            printf("Type: %d, Size: %zu bytes\n", msg.msg_type, msg.data_size);
+            printf("Type: %d, Message pointer: %p\n", msg.msg_type, msg.message_ptr);
             
             // SEND PATH: In a real implementation, this would send via MAC layer
-            // The MAC layer would transmit msg.msg_data (serialized bytes) over the network
+            // The MAC layer would handle serialization of msg.message_ptr and transmit over the network
             
             if (msg.msg_type == MSG_HELLO) {
                 printf("HELLO message transmitted to all neighbors\n");

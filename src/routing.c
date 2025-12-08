@@ -155,7 +155,6 @@ int forward_tc_message(struct olsr_message* msg, uint32_t sender_addr, struct co
     msg->ttl--;
     msg->hop_count++;
     
-    // Push the TC structure directly to the queue (no serialization needed)
     return push_to_control_queue(queue, MSG_TC, (void*)tc);
 }
 
@@ -583,12 +582,23 @@ void update_routing_table(void) {
  * @param next_hop_id Pointer to store the next hop node ID
  * @param metric Pointer to store the route metric/cost
  * @param hops Pointer to store the number of hops
- * @return 0 on success, -1 if route not found
+ * @return 0 on success, -1 if route not found, 1 if destination is self
  */
 int get_next_hop(uint32_t dest_id, uint32_t* next_hop_id, uint32_t* metric, int* hops) {
     if (!next_hop_id || !metric || !hops) {
         printf("Error: NULL pointer passed to get_next_hop\n");
         return -1;
+    }
+    
+    // Check if destination is this node (message has reached its destination)
+    if (dest_id == node_id) {
+        *next_hop_id = node_id;  // or set to 0 to indicate no forwarding needed
+        *metric = 0;             // No cost to reach self
+        *hops = 0;               // Zero hops to self
+        
+        char dest_str[16];
+        printf("Destination reached: %s (this node)\n", id_to_string(dest_id, dest_str));
+        return 1;  // Special return code: destination is self
     }
     
     // Search for the destination in routing table
@@ -603,14 +613,14 @@ int get_next_hop(uint32_t dest_id, uint32_t* next_hop_id, uint32_t* metric, int*
                    id_to_string(dest_id, dest_str),
                    id_to_string(*next_hop_id, next_hop_str),
                    *metric, *hops);
-            return 0;
+            return 0;  // Route found
         }
     }
     
     // Route not found
     char dest_str[16];
     printf("No route found to destination: %s\n", id_to_string(dest_id, dest_str));
-    return -1;
+    return -1;  // No route
 }
 
 /**

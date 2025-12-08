@@ -22,6 +22,10 @@
  */
 #define MSG_HELLO 1  /**< HELLO message type for neighbor discovery */
 #define MSG_TC 2     /**< Topology Control message type */
+#define MSG_DATA 3   /**< Data message type for application data */
+#define MSG_VOICE 4  /**< Voice message type for voice traffic */
+#define MSG_FILE 5   /**< File transfer message type */
+#define MSG_APPLICATION 6  /**< Generic application message type */
 /** @} */
 
 /**

@@ -108,14 +108,21 @@ int update_tc_topology(uint32_t from_id, uint32_t to_id, time_t validity);
 void cleanup_tc_topology(void);
 
 /**
- * @brief Get next hop information for a destination node
+ * @brief Get next hop information for a destination node with rerouting
  * @param dest_id Destination node ID (MAC/TDMA identifier)
  * @param next_hop_id Pointer to store the next hop node ID
  * @param metric Pointer to store the route metric/cost
  * @param hops Pointer to store the number of hops
- * @return 0 on success, -1 if route not found
+ * @return 1 if destination is self, 0 if route found, -1 if no route, -2 if link failure
  */
 int get_next_hop(uint32_t dest_id, uint32_t* next_hop_id, uint32_t* metric, int* hops);
+
+/**
+ * @brief Notify RRC layer about link failure
+ * @param dest_id Destination that became unreachable
+ * @param failed_next_hop The next hop that failed
+ */
+void notify_rrc_link_failure(uint32_t dest_id, uint32_t failed_next_hop);
 
 /**
  * @brief Check if a route exists to the destination

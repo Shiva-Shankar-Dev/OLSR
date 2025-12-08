@@ -62,6 +62,7 @@
 #define TC_INTERVAL    5  /**< TC message interval in seconds */
 #define TC_VALIDITY_TIME 15  /**< TC message validity time in seconds */
 #define HELLO_TIMEOUT  6  /**< HELLO timeout for link failure detection in seconds */
+#define NEIGHB_HOLD_TIME 10  /**< Neighbor hold time before considering link failed in seconds */
 /** @} */
 
 /**

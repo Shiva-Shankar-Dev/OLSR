@@ -577,12 +577,55 @@ void update_routing_table(void) {
 }
 
 /**
- * @brief Get next hop information for a destination node
+ * @brief Notify RRC layer about link failure or destination unreachability
+ * 
+ * This function interfaces with the RRC layer to handle:
+ * - Destination node left the network (unreachable)
+ * - Network partitioning (temporary isolation)
+ * - Connection re-establishment attempts
+ * - Upper layer protocol notifications (TCP retransmission, etc.)
+ * 
+ * @param dest_id Destination that became unreachable
+ * @param failed_next_hop The next hop that failed (may be 0 if dest disappeared)
+ */
+void notify_rrc_link_failure(uint32_t dest_id, uint32_t failed_next_hop) {
+    char dest_str[16], failed_hop_str[16];
+    
+    printf("\n=== RRC NOTIFICATION: DESTINATION UNREACHABLE ===\n");
+    printf("Destination: %s\n", id_to_string(dest_id, dest_str));
+    if (failed_next_hop != 0) {
+        printf("Failed Next Hop: %s\n", id_to_string(failed_next_hop, failed_hop_str));
+    }
+    printf("Reason: Either destination left network or network partitioned\n");
+    printf("Action Required: RRC should:\n");
+    printf("  1. Notify upper layers (TCP, UDP, application)\n");
+    printf("  2. Buffer packets temporarily (if network partition suspected)\n");
+    printf("  3. Start route rediscovery timer\n");
+    printf("  4. If timeout expires, notify application of connection failure\n");
+    printf("  5. Consider alternative bearers/paths if available\n");
+    printf("=================================================\n\n");
+    
+    // TODO: Implement actual RRC notification mechanism
+    // This could involve:
+    // - Calling RRC API: rrc_indicate_destination_unreachable(dest_id, reason)
+    // - Sending a message to RRC layer via message queue
+    // - Setting a flag that RRC polls periodically
+    // - Triggering an interrupt/signal to RRC
+}
+
+/**
+ * @brief Get next hop with rerouting capability and link failure detection
+ * 
+ * This enhanced version:
+ * 1. Checks if next hop is still reachable (neighbor still alive)
+ * 2. Triggers rerouting if next hop has disappeared
+ * 3. Notifies upper layer (RRC) if no route exists after rerouting
+ * 
  * @param dest_id Destination node ID (MAC/TDMA identifier)
  * @param next_hop_id Pointer to store the next hop node ID
  * @param metric Pointer to store the route metric/cost
  * @param hops Pointer to store the number of hops
- * @return 0 on success, -1 if route not found, 1 if destination is self
+ * @return 1 if destination is self, 0 if route found, -1 if no route, -2 if link failure
  */
 int get_next_hop(uint32_t dest_id, uint32_t* next_hop_id, uint32_t* metric, int* hops) {
     if (!next_hop_id || !metric || !hops) {
@@ -592,9 +635,9 @@ int get_next_hop(uint32_t dest_id, uint32_t* next_hop_id, uint32_t* metric, int*
     
     // Check if destination is this node (message has reached its destination)
     if (dest_id == node_id) {
-        *next_hop_id = node_id;  // or set to 0 to indicate no forwarding needed
-        *metric = 0;             // No cost to reach self
-        *hops = 0;               // Zero hops to self
+        *next_hop_id = node_id;
+        *metric = 0;
+        *hops = 0;
         
         char dest_str[16];
         printf("Destination reached: %s (this node)\n", id_to_string(dest_id, dest_str));
@@ -602,25 +645,152 @@ int get_next_hop(uint32_t dest_id, uint32_t* next_hop_id, uint32_t* metric, int*
     }
     
     // Search for the destination in routing table
+    struct routing_table_entry* route = NULL;
+    int route_index = -1;
+    
     for (int i = 0; i < routing_table_size; i++) {
         if (routing_table[i].dest_id == dest_id) {
-            *next_hop_id = routing_table[i].next_hop_id;
-            *metric = routing_table[i].metric;
-            *hops = routing_table[i].hops;
-            
-            char dest_str[16], next_hop_str[16];
-            printf("Route found: %s via %s (cost=%u, hops=%d)\n",
-                   id_to_string(dest_id, dest_str),
-                   id_to_string(*next_hop_id, next_hop_str),
-                   *metric, *hops);
-            return 0;  // Route found
+            route = &routing_table[i];
+            route_index = i;
+            break;
         }
     }
     
-    // Route not found
-    char dest_str[16];
-    printf("No route found to destination: %s\n", id_to_string(dest_id, dest_str));
-    return -1;  // No route
+    if (!route) {
+        // No route exists at all
+        char dest_str[16];
+        printf("ROUTE_ERROR: No route found to destination: %s\n", 
+               id_to_string(dest_id, dest_str));
+        return -1;  // No route
+    }
+    
+    // Route exists - now check if next hop is still reachable
+    uint32_t planned_next_hop = route->next_hop_id;
+    
+    // Verify next hop neighbor is still alive and reachable
+    struct neighbor_entry* next_hop_neighbor = NULL;
+    for (int i = 0; i < neighbor_count; i++) {
+        if (neighbor_table[i].neighbor_id == planned_next_hop) {
+            next_hop_neighbor = &neighbor_table[i];
+            break;
+        }
+    }
+    
+    time_t now = time(NULL);
+    int next_hop_valid = 0;
+    
+    if (next_hop_neighbor) {
+        // Check if neighbor is still alive (seen recently)
+        time_t silence_duration = now - next_hop_neighbor->last_seen;
+        
+        if (silence_duration < NEIGHB_HOLD_TIME) {
+            // Next hop is still valid
+            next_hop_valid = 1;
+        } else {
+            char next_hop_str[16];
+            printf("LINK_FAILURE: Next hop %s has timed out (silent for %lds)\n",
+                   id_to_string(planned_next_hop, next_hop_str), silence_duration);
+        }
+    } else {
+        char next_hop_str[16];
+        printf("LINK_FAILURE: Next hop %s not in neighbor table\n",
+               id_to_string(planned_next_hop, next_hop_str));
+    }
+    
+    if (!next_hop_valid) {
+        // Next hop has disappeared - check if destination still exists in network
+        char dest_str[16], next_hop_str[16];
+        
+        // First check: Is the destination node still present in the network topology?
+        // Check if destination is a direct neighbor or in global topology
+        int dest_exists_in_network = 0;
+        
+        // Check direct neighbors
+        for (int i = 0; i < neighbor_count; i++) {
+            if (neighbor_table[i].neighbor_id == dest_id) {
+                dest_exists_in_network = 1;
+                break;
+            }
+        }
+        
+        // Check global topology database
+        if (!dest_exists_in_network) {
+            struct topology_link topology[MAX_TOPOLOGY_LINKS];
+            int link_count = get_all_topology_links(topology, MAX_TOPOLOGY_LINKS);
+            
+            for (int i = 0; i < link_count; i++) {
+                if (topology[i].from_id == dest_id || topology[i].to_id == dest_id) {
+                    dest_exists_in_network = 1;
+                    break;
+                }
+            }
+        }
+        
+        if (!dest_exists_in_network) {
+            // Destination node has completely disappeared from the network
+            printf("DESTINATION_UNREACHABLE: Node %s has left the network\n",
+                   id_to_string(dest_id, dest_str));
+            printf("No topology information available for destination\n");
+            
+            // Notify RRC - destination is unreachable (not just link failure)
+            notify_rrc_link_failure(dest_id, planned_next_hop);
+            
+            return -2;  // Destination unreachable - node left network
+        }
+        
+        // Destination exists in network, but next hop disappeared - REROUTE
+        printf("REROUTING: Next hop %s unreachable, but destination %s still in network\n",
+               id_to_string(planned_next_hop, next_hop_str),
+               id_to_string(dest_id, dest_str));
+        
+        // Invalidate the current route
+        routing_table[route_index].metric = 0xFFFFFFFF;  // Mark as invalid
+        
+        // Trigger immediate routing table recalculation
+        update_routing_table();
+        
+        // Try to find new route after recalculation
+        route = NULL;
+        for (int i = 0; i < routing_table_size; i++) {
+            if (routing_table[i].dest_id == dest_id && 
+                routing_table[i].metric != 0xFFFFFFFF) {
+                route = &routing_table[i];
+                break;
+            }
+        }
+        
+        if (!route) {
+            // Destination exists but no alternate route found
+            // This could be temporary network partitioning
+            printf("REROUTE_FAILED: Destination %s exists but no alternate path found\n",
+                   id_to_string(dest_id, dest_str));
+            printf("Network may be temporarily partitioned\n");
+            
+            // Notify RRC about temporary unreachability
+            notify_rrc_link_failure(dest_id, planned_next_hop);
+            
+            return -2;  // No alternate route available
+        }
+        
+        // New route found after rerouting - SUCCESS!
+        printf("REROUTE_SUCCESS: New route found to %s via %s (cost=%u, hops=%d)\n",
+               id_to_string(dest_id, dest_str),
+               id_to_string(route->next_hop_id, next_hop_str),
+               route->metric, route->hops);
+    }
+    
+    // Return the route information (either original or newly calculated)
+    *next_hop_id = route->next_hop_id;
+    *metric = route->metric;
+    *hops = route->hops;
+    
+    char dest_str[16], next_hop_str[16];
+    printf("Route found: %s via %s (cost=%u, hops=%d)\n",
+           id_to_string(dest_id, dest_str),
+           id_to_string(*next_hop_id, next_hop_str),
+           *metric, *hops);
+    
+    return 0;  // Route found (original or rerouted)
 }
 
 /**

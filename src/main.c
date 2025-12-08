@@ -163,21 +163,29 @@ void receive_message(void* message_ptr, uint8_t msg_type, uint32_t sender_id,
             printf("✓ Message delivered to application (destination reached)\n");
             // In real implementation: deliver_to_application(message_ptr, msg_type);
             
-        } else if (route_result == 0 && ttl > 0) {
-            // Need to forward - route exists
-            printf("→ Forwarding message to next hop: 0x%08X (TTL=%d)\n", 
-                   next_hop, ttl - 1);
-            // In real implementation: forward_data_message(message_ptr, msg_type, 
-            //                        dest_id, next_hop, ttl - 1, hop_count + 1);
+        } else if (route_result == 0) {
+            // Route found - forward if TTL allows
+            if (ttl > 0) {
+                printf("→ Forwarding message to next hop: 0x%08X (TTL=%d)\n", 
+                       next_hop, ttl - 1);
+                // In real implementation: forward_data_message(message_ptr, msg_type, 
+                //                        dest_id, next_hop, ttl - 1, hop_count + 1);
+            } else {
+                printf("✗ TTL expired - dropping message\n");
+            }
             
-        } else if (route_result == -1) {
-            // No route found
-            printf("✗ No route to destination 0x%08X - dropping message\n", dest_id);
-            // Could trigger emergency HELLO here if needed
+        } else if (route_result == -2) {
+            // Link failure detected - packet dropped, RRC notified
+            printf("✗ LINK FAILURE: Packet dropped, RRC notified\n");
+            // RRC has already been notified by get_next_hop()
+            // Optionally buffer the packet for later retry
             
         } else {
-            // TTL expired
-            printf("✗ TTL expired - dropping message\n");
+            // No route found (route_result == -1)
+            printf("✗ No route to destination 0x%08X - dropping message\n", dest_id);
+            // Trigger emergency route discovery
+            printf("Triggering emergency HELLO for route discovery\n");
+            generate_emergency_hello(&global_ctrl_queue);
         }
     }
     
